@@ -1,0 +1,16 @@
+# Best Practices
+
+## Engineering
+
+- Keep package tasks in package `package.json` files; root only delegates through `turbo run`.
+- Validate shared message contracts in `packages/protocol` before wiring runtime behavior.
+- Keep bridge control events (`__bridge`) distinct from app-server protocol pass-through.
+- Treat Codex app-server initialization as a strict handshake: `initialize` then `initialized`, exactly once per process lifecycle.
+
+## Product constraints (v1)
+
+- Computer must be ON for Codex execution.
+- Single connected phone per bridge instance.
+- LAN first, Tailscale fallback.
+
+Keep this file updated as new operational patterns are discovered.

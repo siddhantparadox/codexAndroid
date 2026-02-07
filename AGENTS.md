@@ -97,6 +97,9 @@ If scripts are missing, create them in the root `package.json` and ensure they w
 - `docs/`
   - `overview.md` — architecture & decisions (required as the repo grows)
   - `decisions.md` — ADR-style decisions (navigation/state libs, protocol envelope, etc.)
+  - `learnings.md` — dated implementation learnings and implications
+  - `mistakes.md` — mistakes, root causes, remediations, and prevention rules
+  - `best-practices.md` — evolving engineering and product implementation standards
   - `ux.md` — UI structure and design rules
   - `remote-access.md` — Tailscale instructions & troubleshooting
 - `AGENTS.md` — this file
@@ -188,6 +191,8 @@ Encode JSON text in QR:
 - Use codex-appserver-docs.md to reference Openai codex app server documentation.
 - Browse web to reference any other documentation that might be useful if you are unsure about something.
 - Use the internet to find any other information that might be useful.
+- Keep `docs/overview.md` aligned with the current implementation state.
+- Add/update entries in `docs/learnings.md`, `docs/mistakes.md`, and `docs/best-practices.md` during implementation work, not only at release time.
 
 ## Agent Skills
 - use /rams to see real-time design feedback in your AI coding agent.

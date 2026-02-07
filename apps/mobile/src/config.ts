@@ -1,0 +1,1 @@
+export const getAppTitle = (): string => "Codex Mobile";
