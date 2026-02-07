@@ -41,3 +41,9 @@
 - Decision: On unplanned socket close, schedule reconnect attempts with exponential backoff capped at a fixed max delay.
 - Why: Bridge and network availability can be transient; automatic retry improves resilience without tight reconnect loops.
 - Consequence: Connection lifecycle tracks manual-vs-unexpected disconnects and suppresses retries when pairing is intentionally removed.
+
+## 2026-02-07 - Keep command approval `acceptSettings` as JSON passthrough in v1
+
+- Decision: Support optional `acceptSettings` for command approvals via a raw JSON object input that is validated client-side and forwarded unchanged.
+- Why: Current app-server docs confirm `acceptSettings` exists but do not define a stable field schema; passthrough avoids hard-coding speculative keys.
+- Consequence: UI exposes an advanced JSON field for command approvals only, and rejects invalid/non-object JSON before responding.

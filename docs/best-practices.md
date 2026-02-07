@@ -16,6 +16,9 @@
 - Treat server-initiated approval events as first-class request/response flows with explicit request-id resolver maps and deterministic cleanup on disconnect.
 - Cap reconnect backoff and guard against duplicate timers to avoid reconnect storms after transient bridge/socket failures.
 - Keep reconnect delay calculations and approval payload parsing in pure modules with dedicated unit tests.
+- For optional protocol extensions with unspecified schema, validate input shape (JSON object) and forward transparently instead of hard-coding assumptions.
+- In approval UIs, always display thread/turn/item identifiers and the latest transcript snapshot keyed by `itemId` to reduce blind approvals.
+- Summarize proposed file changes directly from item payloads before approval decisions.
 
 ## Product constraints (v1)
 

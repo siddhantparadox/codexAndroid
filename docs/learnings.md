@@ -15,5 +15,8 @@
 - Approval request handling is cleaner when parsing into a typed queue model (`PendingApproval`) before touching UI state.
 - Reconnect logic is safer when delay math is isolated in a pure helper and tested independently from React lifecycle code.
 - Server-initiated request replies may resolve on a microtask boundary even with synchronous handlers; tests should await at least one microtask tick before assertions.
+- Where protocol docs mention optional extension fields without schema (`acceptSettings`), a validated JSON passthrough is safer than inventing strict client-side enums early.
+- Linking approval cards back to transcript state by `itemId` gives useful execution context without additional server round trips.
+- Including file-change summaries and `item/fileChange/outputDelta` in the reducer materially improves approval clarity.
 
 Add new entries with date, context, and impact.

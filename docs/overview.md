@@ -39,5 +39,11 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
   - `item/commandExecution/requestApproval`
   - `item/fileChange/requestApproval`
   - explicit accept/decline responses from app UI
+  - optional command `acceptSettings` JSON passthrough on accept decisions
+  - approval cards now show thread/turn ids and latest transcript item context by `itemId`
 - Mobile connection lifecycle now supports reconnect with exponential backoff after unexpected disconnects
+- Session transcript now includes:
+  - command `cwd` context on command execution items
+  - file-change summaries from `changes`
+  - `item/fileChange/outputDelta` aggregation
 - Docs folder now tracks decisions, learnings, mistakes, and best practices

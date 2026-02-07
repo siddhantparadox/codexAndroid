@@ -16,8 +16,14 @@ import { initializeAndBootstrap } from "./src/codex/bootstrap";
 import {
   COMMAND_APPROVAL_METHOD,
   parseApprovalRequest,
+  type ApprovalRequestMethod,
   type PendingApproval
 } from "./src/codex/approvals";
+import {
+  buildApprovalResponse,
+  type ApprovalDecision,
+  type ApprovalResponsePayload
+} from "./src/codex/approval-response";
 import { computeReconnectDelayMs } from "./src/codex/reconnect";
 import { CodexRpcClient, type RpcSocket } from "./src/codex/rpc-client";
 import {
@@ -44,9 +50,8 @@ const asRecord = (value: unknown): Record<string, unknown> | null => {
   return value as Record<string, unknown>;
 };
 
-type ApprovalDecision = "accept" | "decline";
 type ApprovalResolverEntry = {
-  resolve: (value: unknown) => void;
+  resolve: (value: ApprovalResponsePayload) => void;
   timeout: ReturnType<typeof setTimeout>;
 };
 
@@ -61,6 +66,7 @@ export const App = (): React.ReactElement => {
   const [error, setError] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
   const [prompt, setPrompt] = React.useState("");
+  const [commandAcceptSettingsJson, setCommandAcceptSettingsJson] = React.useState("");
   const [pendingApprovals, setPendingApprovals] = React.useState<PendingApproval[]>(
     []
   );
@@ -94,6 +100,18 @@ export const App = (): React.ReactElement => {
   React.useEffect(() => {
     pairingRef.current = pairing;
   }, [pairing]);
+
+  const transcriptById = React.useMemo(() => {
+    const map = new Map<string, { title: string; text: string; status?: string }>();
+    for (const entry of session.transcript) {
+      map.set(entry.id, {
+        title: entry.title,
+        text: entry.text,
+        status: entry.status
+      });
+    }
+    return map;
+  }, [session.transcript]);
 
   React.useEffect(() => {
     const load = async (): Promise<void> => {
@@ -131,6 +149,7 @@ export const App = (): React.ReactElement => {
     setBootstrap(null);
     setSession(createInitialSessionState());
     setPendingApprovals([]);
+    setCommandAcceptSettingsJson("");
     setError(null);
     setStatus("Paired. Ready to connect.");
   }, []);
@@ -157,9 +176,29 @@ export const App = (): React.ReactElement => {
   );
 
   const respondToApproval = React.useCallback(
-    (requestId: number, decision: ApprovalDecision): void => {
+    (
+      requestId: number,
+      method: ApprovalRequestMethod,
+      decision: ApprovalDecision
+    ): void => {
       const entry = approvalResolversRef.current.get(requestId);
       if (!entry) {
+        return;
+      }
+
+      let response: ApprovalResponsePayload;
+      try {
+        response = buildApprovalResponse({
+          method,
+          decision,
+          commandAcceptSettingsJson
+        });
+      } catch (caughtError) {
+        const message =
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Invalid acceptSettings payload.";
+        setError(message);
         return;
       }
 
@@ -168,19 +207,31 @@ export const App = (): React.ReactElement => {
       setPendingApprovals((previous) =>
         previous.filter((approval) => approval.requestId !== requestId)
       );
-      entry.resolve({ decision });
+      entry.resolve(response);
       setStatus(
         decision === "accept"
           ? "Approval accepted. Waiting for item completion..."
           : "Approval declined."
       );
     },
-    []
+    [commandAcceptSettingsJson]
   );
 
   const queueApprovalRequest = React.useCallback(
-    (request: { id: number; method: string; params: unknown }): Promise<unknown> => {
-      const approval = parseApprovalRequest(request);
+    (
+      request: { id: number; method: string; params: unknown }
+    ): Promise<ApprovalResponsePayload> => {
+      let approval: PendingApproval;
+      try {
+        approval = parseApprovalRequest(request);
+      } catch (caughtError) {
+        const message =
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Failed to parse approval request.";
+        setError(message);
+        return Promise.resolve({ decision: "decline" });
+      }
 
       setPendingApprovals((previous) => {
         const withoutCurrent = previous.filter(
@@ -321,6 +372,7 @@ export const App = (): React.ReactElement => {
       reconnectAttemptRef.current = 0;
       setSession(createInitialSessionState());
       setPendingApprovals([]);
+      setCommandAcceptSettingsJson("");
       setStatus(`Connected via ${connection.endpointType}. Initializing...`);
       const snapshot = await initializeAndBootstrap(client);
       setBootstrap(snapshot);
@@ -356,6 +408,7 @@ export const App = (): React.ReactElement => {
     setBootstrap(null);
     setSession(createInitialSessionState());
     setPendingApprovals([]);
+    setCommandAcceptSettingsJson("");
     reconnectAttemptRef.current = 0;
     setManualPayload("");
     setError(null);
@@ -650,6 +703,10 @@ export const App = (): React.ReactElement => {
                   : "File change";
               const subtitle =
                 approval.command ?? approval.parsedCmdText ?? approval.reason ?? "";
+              const transcriptItem = transcriptById.get(approval.itemId);
+              const transcriptSummary = transcriptItem?.text
+                ? transcriptItem.text.slice(0, 500)
+                : "";
 
               return (
                 <View key={approval.requestId} style={styles.approvalRow}>
@@ -658,6 +715,12 @@ export const App = (): React.ReactElement => {
                   </Text>
                   <Text selectable style={styles.muted}>
                     Item: {approval.itemId}
+                  </Text>
+                  <Text selectable style={styles.muted}>
+                    Thread: {approval.threadId}
+                  </Text>
+                  <Text selectable style={styles.muted}>
+                    Turn: {approval.turnId}
                   </Text>
                   {approval.cwd ? (
                     <Text selectable style={styles.muted}>
@@ -674,17 +737,44 @@ export const App = (): React.ReactElement => {
                       {subtitle}
                     </Text>
                   ) : null}
+                  {transcriptItem ? (
+                    <View style={styles.approvalContextBox}>
+                      <Text selectable style={styles.muted}>
+                        Latest item state: {transcriptItem.title}
+                        {transcriptItem.status ? ` (${transcriptItem.status})` : ""}
+                      </Text>
+                      <Text selectable style={styles.transcriptText}>
+                        {transcriptSummary || "(no details yet)"}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {approval.method === COMMAND_APPROVAL_METHOD ? (
+                    <View style={styles.snapshotInfo}>
+                      <Text selectable style={styles.muted}>
+                        Optional `acceptSettings` JSON:
+                      </Text>
+                      <TextInput
+                        value={commandAcceptSettingsJson}
+                        onChangeText={setCommandAcceptSettingsJson}
+                        placeholder='{"policy":"alwaysAllow"}'
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        multiline
+                        style={styles.approvalSettingsInput}
+                      />
+                    </View>
+                  ) : null}
                   <View style={styles.buttonRow}>
                     <Button
                       title="Accept"
                       onPress={() => {
-                        respondToApproval(approval.requestId, "accept");
+                        respondToApproval(approval.requestId, approval.method, "accept");
                       }}
                     />
                     <Button
                       title="Decline"
                       onPress={() => {
-                        respondToApproval(approval.requestId, "decline");
+                        respondToApproval(approval.requestId, approval.method, "decline");
                       }}
                     />
                   </View>
@@ -814,6 +904,22 @@ const styles = StyleSheet.create({
   approvalRisk: {
     fontSize: 13,
     color: "#7c2d12"
+  },
+  approvalContextBox: {
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 8,
+    backgroundColor: "#f9fafb",
+    padding: 8,
+    gap: 6
+  },
+  approvalSettingsInput: {
+    minHeight: 72,
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 10,
+    padding: 10,
+    backgroundColor: "#ffffff"
   },
   transcriptTitle: {
     fontSize: 13,

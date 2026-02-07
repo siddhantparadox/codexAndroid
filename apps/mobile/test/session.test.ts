@@ -56,7 +56,12 @@ describe("session reducer", () => {
   it("applies command output deltas", () => {
     let state = createInitialSessionState();
     state = applyCodexNotification(state, "item/started", {
-      item: { id: "cmd_1", type: "commandExecution", command: "pnpm test" }
+      item: {
+        id: "cmd_1",
+        type: "commandExecution",
+        command: "pnpm test",
+        cwd: "/repo"
+      }
     });
     state = applyCodexNotification(state, "item/commandExecution/outputDelta", {
       itemId: "cmd_1",
@@ -68,8 +73,32 @@ describe("session reducer", () => {
     });
 
     expect(state.transcript[0].title).toContain("Command");
+    expect(state.transcript[0].text).toContain("cwd: /repo");
     expect(state.transcript[0].text).toContain("line1");
     expect(state.transcript[0].text).toContain("line2");
+  });
+
+  it("summarizes file changes and appends file change deltas", () => {
+    let state = createInitialSessionState();
+    state = applyCodexNotification(state, "item/started", {
+      item: {
+        id: "change_1",
+        type: "fileChange",
+        changes: [
+          { kind: "edit", path: "apps/mobile/App.tsx" },
+          { kind: "create", path: "docs/notes.md" }
+        ]
+      }
+    });
+    state = applyCodexNotification(state, "item/fileChange/outputDelta", {
+      itemId: "change_1",
+      delta: "\napply_patch completed"
+    });
+
+    expect(state.transcript[0].type).toBe("fileChange");
+    expect(state.transcript[0].text).toContain("edit: apps/mobile/App.tsx");
+    expect(state.transcript[0].text).toContain("create: docs/notes.md");
+    expect(state.transcript[0].text).toContain("apply_patch completed");
   });
 
   it("accepts turn/start response payload", () => {

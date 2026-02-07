@@ -92,6 +92,28 @@ const userContentToText = (item: Record<string, unknown>): string => {
   return parts.join("\n");
 };
 
+const fileChangeSummary = (item: Record<string, unknown>): string => {
+  const changes = asArray(item.changes)
+    .map((change) => asRecord(change))
+    .filter((change): change is Record<string, unknown> => Boolean(change));
+
+  if (changes.length === 0) {
+    return "";
+  }
+
+  const lines = changes.slice(0, 3).map((change) => {
+    const kind = typeof change.kind === "string" ? change.kind : "edit";
+    const path = typeof change.path === "string" ? change.path : "(unknown file)";
+    return `${kind}: ${path}`;
+  });
+
+  if (changes.length > 3) {
+    lines.push(`+${changes.length - 3} more file changes`);
+  }
+
+  return lines.join("\n");
+};
+
 const codexItemToTranscriptItem = (item: Record<string, unknown>): TranscriptItem => {
   const id =
     typeof item.id === "string"
@@ -121,11 +143,15 @@ const codexItemToTranscriptItem = (item: Record<string, unknown>): TranscriptIte
 
   if (type === "commandExecution") {
     const command = typeof item.command === "string" ? item.command : "command";
+    const cwd = typeof item.cwd === "string" ? item.cwd : "";
+    const output = typeof item.aggregatedOutput === "string" ? item.aggregatedOutput : "";
+    const text = [cwd ? `cwd: ${cwd}` : "", output].filter((entry) => entry.length > 0).join("\n");
+
     return {
       id,
       type: "commandExecution",
       title: `Command: ${command}`,
-      text: typeof item.aggregatedOutput === "string" ? item.aggregatedOutput : "",
+      text,
       status: typeof item.status === "string" ? item.status : undefined
     };
   }
@@ -135,7 +161,7 @@ const codexItemToTranscriptItem = (item: Record<string, unknown>): TranscriptIte
       id,
       type: "fileChange",
       title: "File change",
-      text: "",
+      text: fileChangeSummary(item),
       status: typeof item.status === "string" ? item.status : undefined
     };
   }
@@ -301,6 +327,18 @@ export const applyCodexNotification = (
         "Command",
         delta
       )
+    };
+  }
+
+  if (method === "item/fileChange/outputDelta") {
+    const itemId = extractStringField(paramsRecord, ["itemId", "id"]);
+    const delta = extractStringField(paramsRecord, ["delta", "outputDelta", "text"]);
+    if (!itemId || !delta) {
+      return state;
+    }
+    return {
+      ...state,
+      transcript: appendTranscriptText(state.transcript, itemId, "fileChange", "File change", delta)
     };
   }
 
