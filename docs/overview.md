@@ -31,4 +31,8 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
   - `account/read`
   - `model/list`
   - `thread/list`
+- Mobile turn flow now includes:
+  - `thread/start` on first prompt when no active thread exists
+  - `turn/start` for user prompts
+  - streaming transcript updates from `turn/*` and `item/*` notifications
 - Docs folder now tracks decisions, learnings, mistakes, and best practices

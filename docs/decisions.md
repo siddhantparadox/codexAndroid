@@ -23,3 +23,9 @@
 - Decision: After socket connection, run the initialization handshake and fetch a baseline snapshot (`account/read`, `model/list`, `thread/list`) before exposing advanced actions.
 - Why: This validates protocol health early and gives immediate user-visible state for auth/models/threads.
 - Consequence: Mobile owns a dedicated JSON-RPC client with request lifecycle management.
+
+## 2026-02-07 - Use a pure session reducer for turn/item streaming
+
+- Decision: Handle `turn/*` and `item/*` notifications through a pure reducer module (`src/codex/session.ts`) instead of embedding mutation logic in React callbacks.
+- Why: Streaming updates are high-frequency and easier to validate with unit tests when state transitions are pure.
+- Consequence: UI becomes a projection of reducer state; transcript behavior is testable without device runtime.

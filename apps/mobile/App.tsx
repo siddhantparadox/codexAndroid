@@ -8,11 +8,19 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextStyle,
   TextInput,
   View
 } from "react-native";
 import { initializeAndBootstrap } from "./src/codex/bootstrap";
 import { CodexRpcClient, type RpcSocket } from "./src/codex/rpc-client";
+import {
+  applyCodexNotification,
+  applyTurnStartResult,
+  appendLocalUserPrompt,
+  createInitialSessionState,
+  setActiveThreadId
+} from "./src/codex/session";
 import { getAppTitle } from "./src/config";
 import { connectWithEndpointFallback } from "./src/pairing/connect";
 import { parsePairingQrPayload } from "./src/pairing/qr";
@@ -22,6 +30,14 @@ import {
   persistPairing
 } from "./src/pairing/secure-store";
 
+const asRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+};
+
 export const App = (): React.ReactElement => {
   const [permission, requestPermission] = useCameraPermissions();
   const [pairing, setPairing] = React.useState<PairingPayload | null>(null);
@@ -30,6 +46,7 @@ export const App = (): React.ReactElement => {
   const [status, setStatus] = React.useState("Not connected");
   const [error, setError] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
+  const [prompt, setPrompt] = React.useState("");
   const [bootstrap, setBootstrap] = React.useState<{
     requiresOpenaiAuth: boolean;
     authMode: string;
@@ -38,9 +55,15 @@ export const App = (): React.ReactElement => {
     threadCount: number;
     threads: Array<{ id: string; preview: string }>;
   } | null>(null);
+  const [session, setSession] = React.useState(createInitialSessionState);
 
   const socketRef = React.useRef<WebSocket | null>(null);
   const clientRef = React.useRef<CodexRpcClient | null>(null);
+  const sessionRef = React.useRef(session);
+
+  React.useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
 
   React.useEffect(() => {
     const load = async (): Promise<void> => {
@@ -66,6 +89,7 @@ export const App = (): React.ReactElement => {
     await persistPairing(parsed);
     setPairing(parsed);
     setBootstrap(null);
+    setSession(createInitialSessionState());
     setError(null);
     setStatus("Paired. Ready to connect.");
   }, []);
@@ -100,13 +124,24 @@ export const App = (): React.ReactElement => {
             setError(`[bridge] ${message.__bridge.message}`);
           }
         },
+        onNotification: (method, params) => {
+          setSession((previous) => applyCodexNotification(previous, method, params));
+          if (method === "turn/started") {
+            setStatus("Turn in progress...");
+          }
+          if (method === "turn/completed") {
+            setStatus("Turn completed.");
+          }
+        },
         onClose: () => {
           setStatus("Disconnected");
           setBootstrap(null);
+          setSession(createInitialSessionState());
         }
       });
       clientRef.current = client;
 
+      setSession(createInitialSessionState());
       setStatus(`Connected via ${connection.endpointType}. Initializing...`);
       const snapshot = await initializeAndBootstrap(client);
       setBootstrap(snapshot);
@@ -131,10 +166,84 @@ export const App = (): React.ReactElement => {
     await clearPersistedPairing();
     setPairing(null);
     setBootstrap(null);
+    setSession(createInitialSessionState());
     setManualPayload("");
     setError(null);
     setStatus("Pairing removed");
   }, []);
+
+  const runTurn = React.useCallback(async (): Promise<void> => {
+    const client = clientRef.current;
+    const promptText = prompt.trim();
+    if (!client || !promptText) {
+      return;
+    }
+
+    const preferredModel = bootstrap?.models[0]?.id ?? "gpt-5.2-codex";
+    const cwd = pairing?.cwdHint;
+
+    setPrompt("");
+    setError(null);
+    setStatus("Starting turn...");
+    setSession((previous) => appendLocalUserPrompt(previous, promptText));
+
+    try {
+      let threadId = sessionRef.current.activeThreadId;
+
+      if (!threadId) {
+        const threadStartResult = asRecord(
+          await client.request("thread/start", {
+            model: preferredModel,
+            cwd,
+            approvalPolicy: "unlessTrusted",
+            sandbox: "workspaceWrite"
+          })
+        );
+        const thread = asRecord(threadStartResult?.thread);
+        threadId = typeof thread?.id === "string" ? thread.id : null;
+
+        if (!threadId) {
+          throw new Error("thread/start did not return a thread id");
+        }
+
+        setSession((previous) => setActiveThreadId(previous, threadId as string));
+        setBootstrap((previous) => {
+          if (!previous) {
+            return previous;
+          }
+
+          const alreadyPresent = previous.threads.some(
+            (threadEntry) => threadEntry.id === threadId
+          );
+          if (alreadyPresent) {
+            return previous;
+          }
+
+          return {
+            ...previous,
+            threadCount: previous.threadCount + 1,
+            threads: [{ id: threadId as string, preview: "(new thread)" }, ...previous.threads]
+          };
+        });
+      }
+
+      const turnStartResult = await client.request("turn/start", {
+        threadId,
+        input: [{ type: "text", text: promptText }],
+        cwd
+      });
+
+      setSession((previous) => applyTurnStartResult(previous, turnStartResult));
+      setStatus("Turn in progress...");
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Failed to start turn";
+      setError(message);
+      setStatus("Turn failed to start");
+    }
+  }, [bootstrap, pairing?.cwdHint, prompt]);
 
   const submitManualPayload = React.useCallback(async (): Promise<void> => {
     try {
@@ -309,6 +418,62 @@ export const App = (): React.ReactElement => {
         )}
       </View>
 
+      <View style={styles.card}>
+        <Text selectable style={styles.sectionTitle}>
+          Turn Composer
+        </Text>
+        <Text selectable style={styles.label}>
+          Active thread: {session.activeThreadId ?? "none"}
+        </Text>
+        <Text selectable style={styles.label}>
+          Turn status: {session.turnStatus}
+        </Text>
+        <TextInput
+          value={prompt}
+          onChangeText={setPrompt}
+          placeholder="Ask Codex to make a change..."
+          autoCapitalize="sentences"
+          multiline
+          style={styles.input}
+        />
+        <Button
+          title="Run Turn"
+          onPress={() => void runTurn()}
+          disabled={!clientRef.current || isLoading || !prompt.trim()}
+        />
+      </View>
+
+      <View style={styles.card}>
+        <Text selectable style={styles.sectionTitle}>
+          Transcript
+        </Text>
+        {session.transcript.length === 0 ? (
+          <Text selectable style={styles.muted}>
+            No transcript yet.
+          </Text>
+        ) : (
+          <View style={styles.snapshotInfo}>
+            {session.transcript.map((entry) => (
+              <View key={entry.id} style={styles.transcriptRow}>
+                <Text
+                  selectable
+                  style={[
+                    styles.transcriptTitle,
+                    transcriptTypeStyles[entry.type] ?? transcriptTypeStyles.system
+                  ]}
+                >
+                  {entry.title}
+                  {entry.status ? ` (${entry.status})` : ""}
+                </Text>
+                <Text selectable style={styles.transcriptText}>
+                  {entry.text || "(no content)"}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+
       <StatusBar style="dark" />
     </ScrollView>
   );
@@ -379,7 +544,30 @@ const styles = StyleSheet.create({
   error: {
     color: "#b91c1c",
     fontSize: 13
+  },
+  transcriptRow: {
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 10,
+    padding: 10,
+    gap: 6
+  },
+  transcriptTitle: {
+    fontSize: 13,
+    fontWeight: "600"
+  },
+  transcriptText: {
+    fontSize: 14,
+    color: "#111827"
   }
 });
+
+const transcriptTypeStyles: Record<string, TextStyle> = {
+  userMessage: { color: "#1d4ed8" },
+  agentMessage: { color: "#047857" },
+  commandExecution: { color: "#7c3aed" },
+  fileChange: { color: "#b45309" },
+  system: { color: "#4b5563" }
+};
 
 export default App;

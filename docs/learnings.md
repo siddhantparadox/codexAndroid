@@ -10,5 +10,7 @@
 - Endpoint fallback logic is easier to test when WebSocket construction is injected (constructor dependency instead of global-only usage).
 - A dedicated mobile JSON-RPC client with request timeout/rejection handling simplifies app-server bootstrap and avoids UI-level message parsing.
 - Bridge control envelopes (`__bridge`) and app-server JSON-RPC can share one socket safely when the client explicitly routes and ignores bridge control payloads.
+- Turn streaming is stable when notifications are normalized into one reducer (`applyCodexNotification`) and UI only consumes derived transcript state.
+- Optimistic local user prompt insertion helps avoid perceived latency before `turn/start` response/stream notifications arrive.
 
 Add new entries with date, context, and impact.
