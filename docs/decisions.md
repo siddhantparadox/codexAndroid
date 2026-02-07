@@ -17,3 +17,9 @@
 - Decision: Support both QR scanning and manual pairing-payload paste in mobile.
 - Why: QR is primary UX; manual payload is needed for development, camera-permission denials, and scanner edge cases.
 - Consequence: Pairing parser/validator is shared by both paths and stored payload remains one schema.
+
+## 2026-02-07 - Bootstrap app-server immediately after bridge connection
+
+- Decision: After socket connection, run the initialization handshake and fetch a baseline snapshot (`account/read`, `model/list`, `thread/list`) before exposing advanced actions.
+- Why: This validates protocol health early and gives immediate user-visible state for auth/models/threads.
+- Consequence: Mobile owns a dedicated JSON-RPC client with request lifecycle management.

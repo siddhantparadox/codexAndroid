@@ -11,14 +11,16 @@ import {
   TextInput,
   View
 } from "react-native";
-import { connectWithEndpointFallback } from "./src/pairing/connect";
+import { initializeAndBootstrap } from "./src/codex/bootstrap";
+import { CodexRpcClient, type RpcSocket } from "./src/codex/rpc-client";
 import { getAppTitle } from "./src/config";
+import { connectWithEndpointFallback } from "./src/pairing/connect";
+import { parsePairingQrPayload } from "./src/pairing/qr";
 import {
   clearPersistedPairing,
   loadPersistedPairing,
   persistPairing
 } from "./src/pairing/secure-store";
-import { parsePairingQrPayload } from "./src/pairing/qr";
 
 export const App = (): React.ReactElement => {
   const [permission, requestPermission] = useCameraPermissions();
@@ -28,8 +30,17 @@ export const App = (): React.ReactElement => {
   const [status, setStatus] = React.useState("Not connected");
   const [error, setError] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
+  const [bootstrap, setBootstrap] = React.useState<{
+    requiresOpenaiAuth: boolean;
+    authMode: string;
+    modelCount: number;
+    models: Array<{ id: string; displayName: string }>;
+    threadCount: number;
+    threads: Array<{ id: string; preview: string }>;
+  } | null>(null);
 
   const socketRef = React.useRef<WebSocket | null>(null);
+  const clientRef = React.useRef<CodexRpcClient | null>(null);
 
   React.useEffect(() => {
     const load = async (): Promise<void> => {
@@ -43,7 +54,10 @@ export const App = (): React.ReactElement => {
     void load();
 
     return () => {
+      clientRef.current?.dispose();
+      clientRef.current = null;
       socketRef.current?.close();
+      socketRef.current = null;
     };
   }, []);
 
@@ -51,6 +65,7 @@ export const App = (): React.ReactElement => {
     const parsed = parsePairingQrPayload(raw);
     await persistPairing(parsed);
     setPairing(parsed);
+    setBootstrap(null);
     setError(null);
     setStatus("Paired. Ready to connect.");
   }, []);
@@ -64,20 +79,38 @@ export const App = (): React.ReactElement => {
     setError(null);
     setStatus("Connecting...");
 
+    clientRef.current?.dispose();
+    clientRef.current = null;
+
     socketRef.current?.close();
     socketRef.current = null;
+    setBootstrap(null);
 
     try {
-      const result = await connectWithEndpointFallback({
+      const connection = await connectWithEndpointFallback({
         payload: pairing
       });
 
-      socketRef.current = result.socket as WebSocket;
-      setStatus(`Connected via ${result.endpointType}`);
+      const socket = connection.socket as unknown as WebSocket;
+      socketRef.current = socket;
 
-      result.socket.onclose = () => {
-        setStatus("Disconnected");
-      };
+      const client = new CodexRpcClient(socket as unknown as RpcSocket, {
+        onBridgeMessage: (message) => {
+          if (message.__bridge.type === "error") {
+            setError(`[bridge] ${message.__bridge.message}`);
+          }
+        },
+        onClose: () => {
+          setStatus("Disconnected");
+          setBootstrap(null);
+        }
+      });
+      clientRef.current = client;
+
+      setStatus(`Connected via ${connection.endpointType}. Initializing...`);
+      const snapshot = await initializeAndBootstrap(client);
+      setBootstrap(snapshot);
+      setStatus(`Connected via ${connection.endpointType}. App server ready.`);
     } catch (caughtError) {
       const message =
         caughtError instanceof Error ? caughtError.message : "Connection failed";
@@ -89,11 +122,15 @@ export const App = (): React.ReactElement => {
   }, [pairing]);
 
   const forgetPairing = React.useCallback(async (): Promise<void> => {
+    clientRef.current?.dispose();
+    clientRef.current = null;
+
     socketRef.current?.close();
     socketRef.current = null;
 
     await clearPersistedPairing();
     setPairing(null);
+    setBootstrap(null);
     setManualPayload("");
     setError(null);
     setStatus("Pairing removed");
@@ -235,6 +272,43 @@ export const App = (): React.ReactElement => {
         />
       </View>
 
+      <View style={styles.card}>
+        <Text selectable style={styles.sectionTitle}>
+          App Server Snapshot
+        </Text>
+        {!bootstrap ? (
+          <Text selectable style={styles.muted}>
+            No bootstrap data yet.
+          </Text>
+        ) : (
+          <View style={styles.snapshotInfo}>
+            <Text selectable style={styles.label}>
+              Auth mode: {bootstrap.authMode}
+            </Text>
+            <Text selectable style={styles.label}>
+              Requires OpenAI auth: {String(bootstrap.requiresOpenaiAuth)}
+            </Text>
+            <Text selectable style={styles.label}>
+              Models loaded: {bootstrap.modelCount}
+            </Text>
+            <Text selectable style={styles.label}>
+              Threads loaded: {bootstrap.threadCount}
+            </Text>
+
+            {bootstrap.models.slice(0, 5).map((model) => (
+              <Text key={model.id} selectable style={styles.muted}>
+                Model: {model.displayName}
+              </Text>
+            ))}
+            {bootstrap.threads.slice(0, 5).map((thread) => (
+              <Text key={thread.id} selectable style={styles.muted}>
+                Thread: {thread.preview}
+              </Text>
+            ))}
+          </View>
+        )}
+      </View>
+
       <StatusBar style="dark" />
     </ScrollView>
   );
@@ -268,6 +342,9 @@ const styles = StyleSheet.create({
     color: "#111827"
   },
   pairingInfo: {
+    gap: 4
+  },
+  snapshotInfo: {
     gap: 4
   },
   label: {

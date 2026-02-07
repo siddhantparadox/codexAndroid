@@ -26,4 +26,9 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
   - manual JSON pairing fallback
   - pairing persistence via `expo-secure-store`
   - LAN-first then Tailscale connection fallback
+- Mobile now initializes Codex app-server after connection and boots initial data:
+  - `initialize` + `initialized`
+  - `account/read`
+  - `model/list`
+  - `thread/list`
 - Docs folder now tracks decisions, learnings, mistakes, and best practices

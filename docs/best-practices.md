@@ -10,6 +10,7 @@
   - machine-readable QR payload for normal pairing
   - manual JSON input fallback for debugging and camera-permission edge cases
 - Implement connection strategy explicitly as ordered attempts (`lan` before `tailscale`) and keep per-attempt failure reasons for user-facing diagnostics.
+- Use a dedicated request/response manager for app-server JSON-RPC (`id` tracking + timeout + close/error fanout), not ad-hoc `onmessage` logic in UI components.
 
 ## Product constraints (v1)
 
