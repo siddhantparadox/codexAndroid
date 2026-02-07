@@ -6,6 +6,10 @@
 - Validate shared message contracts in `packages/protocol` before wiring runtime behavior.
 - Keep bridge control events (`__bridge`) distinct from app-server protocol pass-through.
 - Treat Codex app-server initialization as a strict handshake: `initialize` then `initialized`, exactly once per process lifecycle.
+- Keep bridge pairing UX dual-path:
+  - machine-readable QR payload for normal pairing
+  - manual JSON input fallback for debugging and camera-permission edge cases
+- Implement connection strategy explicitly as ordered attempts (`lan` before `tailscale`) and keep per-attempt failure reasons for user-facing diagnostics.
 
 ## Product constraints (v1)
 

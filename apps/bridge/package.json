@@ -14,9 +14,11 @@
   },
   "dependencies": {
     "@codex-mobile/protocol": "workspace:*",
+    "qrcode-terminal": "^0.12.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@types/qrcode-terminal": "^0.12.2",
     "@types/ws": "^8.5.14"
   }
 }

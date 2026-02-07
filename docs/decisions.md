@@ -11,3 +11,9 @@
 - Decision: Keep bridge communication on LAN/Tailscale over `ws://` for v1.
 - Why: Minimizes deployment complexity and keeps computer-local execution model intact.
 - Consequence: No public relay, no port forwarding, and no cloud runner in v1.
+
+## 2026-02-07 - Pairing UX uses QR-first with manual JSON fallback
+
+- Decision: Support both QR scanning and manual pairing-payload paste in mobile.
+- Why: QR is primary UX; manual payload is needed for development, camera-permission denials, and scanner edge cases.
+- Consequence: Pairing parser/validator is shared by both paths and stored payload remains one schema.

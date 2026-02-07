@@ -11,6 +11,7 @@ import { WebSocketServer } from "ws";
 import type WebSocket from "ws";
 import { parseBridgeArgs } from "./args.js";
 import { resolveBridgeEndpoints } from "./network.js";
+import { pairingPayloadToQrText, printPairingQr } from "./pairing-qr.js";
 
 const cwd = process.cwd();
 const args = parseBridgeArgs(process.argv.slice(2), cwd);
@@ -149,8 +150,15 @@ appServerLines.on("line", (line) => {
 
 server.listen(args.port, args.host, () => {
   console.log(`[bridge] listening on ws://${args.host}:${args.port}/ws`);
+  console.log(`[bridge] name: ${args.name}`);
+  console.log(`[bridge] lan endpoint: ${endpoints.lan ?? "unavailable"}`);
+  console.log(
+    `[bridge] tailscale endpoint: ${endpoints.tailscale ?? "unavailable"}`
+  );
   console.log("[bridge] pairing payload:");
-  console.log(JSON.stringify(pairingPayload));
+  console.log(pairingPayloadToQrText(pairingPayload));
+  console.log("[bridge] scan this QR from Codex Mobile:");
+  printPairingQr(pairingPayload);
 });
 
 const shutdown = (): void => {

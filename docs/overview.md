@@ -20,6 +20,10 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
 
 - Monorepo scaffold created with Turborepo + PNPM workspace
 - Protocol package defines pairing and bridge-control schemas
-- Bridge package supports token auth, single-client lock, and app-server passthrough
-- Mobile package is now an Expo scaffold (`expo` + `react-native`) with app identity set to `Codex Mobile`
+- Bridge package supports token auth, single-client lock, app-server passthrough, and terminal QR output for pairing
+- Mobile package includes initial pairing flow:
+  - QR scan support via `expo-camera`
+  - manual JSON pairing fallback
+  - pairing persistence via `expo-secure-store`
+  - LAN-first then Tailscale connection fallback
 - Docs folder now tracks decisions, learnings, mistakes, and best practices
