@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This repository builds **Codex Remote (v1)**:
+This repository builds **Codex Mobile** (**Codex Remote v1**):
 - **Mobile app**: Expo (React Native) client (Android-first UX; iOS later).
 - **Computer bridge**: minimal local service that spawns `codex app-server` and tunnels the protocol to the phone.
 - **V1 networking**:
@@ -23,6 +23,15 @@ Fight entropy. Leave the codebase better than you found it.
 ## Summary
 
 Read architecture/style guides. Write/run tests. Check lint/types. Hardcore code review.
+
+---
+
+## Monorepo and Build System
+
+- Use a **PNPM workspace + Turborepo** monorepo.
+- Keep shared logic in `packages/*` and app/runtime code in `apps/*`.
+- Use Turborepo for task orchestration (`lint`, `typecheck`, `test`, `build`, and scoped dev tasks).
+- Do not introduce a second orchestration layer (Nx/Lerna/custom task runners) for v1.
 
 ---
 
@@ -58,6 +67,7 @@ If you cannot run any of these (CI/down env), explain exactly why and provide be
 
 ### Install
 - `pnpm install`
+- `pnpm turbo run build` (when build scripts exist)
 
 ### Run (development)
 - Start the bridge (spawns `codex app-server`, exposes WebSocket server):
@@ -73,7 +83,7 @@ If you cannot run any of these (CI/down env), explain exactly why and provide be
 - Typecheck: `pnpm typecheck`
 - Unit tests: `pnpm test`
 
-If scripts are missing, create them in the root `package.json` and ensure they work.
+If scripts are missing, create them in the root `package.json` and ensure they work through Turborepo pipelines.
 
 ---
 
@@ -185,6 +195,8 @@ Encode JSON text in QR:
   2. /rams
   3. If failed to use /rams, remove it from AGENTS.md file.
 - Use appropriate skills from .agents/skills when needed to code using best practices.
+- Use the Turborepo skill at `.agents/skills/turborepo/SKILL.md` for workspace, pipeline, caching, and task-graph changes.
+- If a repo uses `.agent/skills` in another branch or machine setup, check that path as a fallback.
 
 ## MCPs
 - Use `openaiDeveloperDocs` MCP server to browse relevant openai developer documentation like Codex and codex app server and any thinge else required.
