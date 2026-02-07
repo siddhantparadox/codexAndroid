@@ -13,6 +13,12 @@ import {
   View
 } from "react-native";
 import { initializeAndBootstrap } from "./src/codex/bootstrap";
+import {
+  COMMAND_APPROVAL_METHOD,
+  parseApprovalRequest,
+  type PendingApproval
+} from "./src/codex/approvals";
+import { computeReconnectDelayMs } from "./src/codex/reconnect";
 import { CodexRpcClient, type RpcSocket } from "./src/codex/rpc-client";
 import {
   applyCodexNotification,
@@ -38,6 +44,14 @@ const asRecord = (value: unknown): Record<string, unknown> | null => {
   return value as Record<string, unknown>;
 };
 
+type ApprovalDecision = "accept" | "decline";
+type ApprovalResolverEntry = {
+  resolve: (value: unknown) => void;
+  timeout: ReturnType<typeof setTimeout>;
+};
+
+const APPROVAL_TIMEOUT_MS = 120000;
+
 export const App = (): React.ReactElement => {
   const [permission, requestPermission] = useCameraPermissions();
   const [pairing, setPairing] = React.useState<PairingPayload | null>(null);
@@ -47,6 +61,9 @@ export const App = (): React.ReactElement => {
   const [error, setError] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
   const [prompt, setPrompt] = React.useState("");
+  const [pendingApprovals, setPendingApprovals] = React.useState<PendingApproval[]>(
+    []
+  );
   const [bootstrap, setBootstrap] = React.useState<{
     requiresOpenaiAuth: boolean;
     authMode: string;
@@ -60,10 +77,23 @@ export const App = (): React.ReactElement => {
   const socketRef = React.useRef<WebSocket | null>(null);
   const clientRef = React.useRef<CodexRpcClient | null>(null);
   const sessionRef = React.useRef(session);
+  const pairingRef = React.useRef<PairingPayload | null>(pairing);
+  const reconnectTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptRef = React.useRef(0);
+  const isConnectingRef = React.useRef(false);
+  const manualDisconnectRef = React.useRef(false);
+  const connectInvokerRef = React.useRef<(() => Promise<void>) | null>(null);
+  const approvalResolversRef = React.useRef<Map<number, ApprovalResolverEntry>>(
+    new Map()
+  );
 
   React.useEffect(() => {
     sessionRef.current = session;
   }, [session]);
+
+  React.useEffect(() => {
+    pairingRef.current = pairing;
+  }, [pairing]);
 
   React.useEffect(() => {
     const load = async (): Promise<void> => {
@@ -77,10 +107,20 @@ export const App = (): React.ReactElement => {
     void load();
 
     return () => {
+      manualDisconnectRef.current = true;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      for (const entry of approvalResolversRef.current.values()) {
+        clearTimeout(entry.timeout);
+      }
+      approvalResolversRef.current.clear();
+      const previousSocket = socketRef.current;
+      socketRef.current = null;
       clientRef.current?.dispose();
       clientRef.current = null;
-      socketRef.current?.close();
-      socketRef.current = null;
+      previousSocket?.close();
     };
   }, []);
 
@@ -90,29 +130,150 @@ export const App = (): React.ReactElement => {
     setPairing(parsed);
     setBootstrap(null);
     setSession(createInitialSessionState());
+    setPendingApprovals([]);
     setError(null);
     setStatus("Paired. Ready to connect.");
   }, []);
 
-  const connectToBridge = React.useCallback(async (): Promise<void> => {
-    if (!pairing) {
+  const clearReconnectTimer = React.useCallback((): void => {
+    if (!reconnectTimerRef.current) {
       return;
     }
 
+    clearTimeout(reconnectTimerRef.current);
+    reconnectTimerRef.current = null;
+  }, []);
+
+  const resolveOutstandingApprovals = React.useCallback(
+    (decision: ApprovalDecision): void => {
+      for (const [requestId, entry] of approvalResolversRef.current.entries()) {
+        clearTimeout(entry.timeout);
+        entry.resolve({ decision });
+        approvalResolversRef.current.delete(requestId);
+      }
+      setPendingApprovals([]);
+    },
+    []
+  );
+
+  const respondToApproval = React.useCallback(
+    (requestId: number, decision: ApprovalDecision): void => {
+      const entry = approvalResolversRef.current.get(requestId);
+      if (!entry) {
+        return;
+      }
+
+      clearTimeout(entry.timeout);
+      approvalResolversRef.current.delete(requestId);
+      setPendingApprovals((previous) =>
+        previous.filter((approval) => approval.requestId !== requestId)
+      );
+      entry.resolve({ decision });
+      setStatus(
+        decision === "accept"
+          ? "Approval accepted. Waiting for item completion..."
+          : "Approval declined."
+      );
+    },
+    []
+  );
+
+  const queueApprovalRequest = React.useCallback(
+    (request: { id: number; method: string; params: unknown }): Promise<unknown> => {
+      const approval = parseApprovalRequest(request);
+
+      setPendingApprovals((previous) => {
+        const withoutCurrent = previous.filter(
+          (entry) => entry.requestId !== approval.requestId
+        );
+        return [...withoutCurrent, approval];
+      });
+
+      setStatus(
+        approval.method === COMMAND_APPROVAL_METHOD
+          ? "Command approval requested."
+          : "File change approval requested."
+      );
+
+      return new Promise((resolve) => {
+        const existing = approvalResolversRef.current.get(approval.requestId);
+        if (existing) {
+          clearTimeout(existing.timeout);
+          existing.resolve({ decision: "decline" });
+          approvalResolversRef.current.delete(approval.requestId);
+        }
+
+        const timeout = setTimeout(() => {
+          approvalResolversRef.current.delete(approval.requestId);
+          setPendingApprovals((previous) =>
+            previous.filter((entry) => entry.requestId !== approval.requestId)
+          );
+          resolve({ decision: "decline" });
+          setStatus("Approval timed out and was declined.");
+        }, APPROVAL_TIMEOUT_MS);
+
+        approvalResolversRef.current.set(approval.requestId, {
+          resolve,
+          timeout
+        });
+      });
+    },
+    []
+  );
+
+  const scheduleReconnect = React.useCallback((): void => {
+    if (manualDisconnectRef.current || !pairingRef.current) {
+      return;
+    }
+
+    if (reconnectTimerRef.current || isConnectingRef.current) {
+      return;
+    }
+
+    const attempt = reconnectAttemptRef.current + 1;
+    reconnectAttemptRef.current = attempt;
+    const delayMs = computeReconnectDelayMs(attempt);
+    const delaySeconds = Math.ceil(delayMs / 1000);
+
+    setStatus(`Disconnected. Reconnecting in ${delaySeconds}s (attempt ${attempt})...`);
+
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null;
+      const invoke = connectInvokerRef.current;
+      if (!invoke) {
+        return;
+      }
+
+      void invoke();
+    }, delayMs);
+  }, []);
+
+  const connectToBridge = React.useCallback(async (): Promise<void> => {
+    const nextPairing = pairingRef.current;
+    if (!nextPairing || isConnectingRef.current) {
+      return;
+    }
+
+    clearReconnectTimer();
+    isConnectingRef.current = true;
+    manualDisconnectRef.current = false;
+
     setIsLoading(true);
     setError(null);
-    setStatus("Connecting...");
+    setStatus(reconnectAttemptRef.current > 0 ? "Reconnecting..." : "Connecting...");
 
+    resolveOutstandingApprovals("decline");
+
+    const previousSocket = socketRef.current;
+    socketRef.current = null;
     clientRef.current?.dispose();
     clientRef.current = null;
-
-    socketRef.current?.close();
-    socketRef.current = null;
+    previousSocket?.close();
     setBootstrap(null);
 
     try {
       const connection = await connectWithEndpointFallback({
-        payload: pairing
+        payload: nextPairing
       });
 
       const socket = connection.socket as unknown as WebSocket;
@@ -133,15 +294,33 @@ export const App = (): React.ReactElement => {
             setStatus("Turn completed.");
           }
         },
+        onServerRequest: ({ id, method, params }) =>
+          queueApprovalRequest({ id, method, params }),
         onClose: () => {
-          setStatus("Disconnected");
+          if (socketRef.current !== socket) {
+            return;
+          }
+
+          socketRef.current = null;
+          resolveOutstandingApprovals("decline");
+          setPendingApprovals([]);
           setBootstrap(null);
           setSession(createInitialSessionState());
+
+          if (manualDisconnectRef.current) {
+            setStatus("Disconnected");
+            return;
+          }
+
+          setStatus("Disconnected");
+          scheduleReconnect();
         }
       });
       clientRef.current = client;
 
+      reconnectAttemptRef.current = 0;
       setSession(createInitialSessionState());
+      setPendingApprovals([]);
       setStatus(`Connected via ${connection.endpointType}. Initializing...`);
       const snapshot = await initializeAndBootstrap(client);
       setBootstrap(snapshot);
@@ -152,25 +331,36 @@ export const App = (): React.ReactElement => {
       setError(message);
       setStatus("Connection failed");
     } finally {
+      isConnectingRef.current = false;
       setIsLoading(false);
     }
-  }, [pairing]);
+  }, [clearReconnectTimer, queueApprovalRequest, resolveOutstandingApprovals, scheduleReconnect]);
+
+  React.useEffect(() => {
+    connectInvokerRef.current = connectToBridge;
+  }, [connectToBridge]);
 
   const forgetPairing = React.useCallback(async (): Promise<void> => {
+    manualDisconnectRef.current = true;
+    clearReconnectTimer();
+    resolveOutstandingApprovals("decline");
+
+    const previousSocket = socketRef.current;
+    socketRef.current = null;
     clientRef.current?.dispose();
     clientRef.current = null;
-
-    socketRef.current?.close();
-    socketRef.current = null;
+    previousSocket?.close();
 
     await clearPersistedPairing();
     setPairing(null);
     setBootstrap(null);
     setSession(createInitialSessionState());
+    setPendingApprovals([]);
+    reconnectAttemptRef.current = 0;
     setManualPayload("");
     setError(null);
     setStatus("Pairing removed");
-  }, []);
+  }, [clearReconnectTimer, resolveOutstandingApprovals]);
 
   const runTurn = React.useCallback(async (): Promise<void> => {
     const client = clientRef.current;
@@ -445,6 +635,68 @@ export const App = (): React.ReactElement => {
 
       <View style={styles.card}>
         <Text selectable style={styles.sectionTitle}>
+          Pending Approvals
+        </Text>
+        {pendingApprovals.length === 0 ? (
+          <Text selectable style={styles.muted}>
+            No pending approvals.
+          </Text>
+        ) : (
+          <View style={styles.snapshotInfo}>
+            {pendingApprovals.map((approval) => {
+              const methodLabel =
+                approval.method === COMMAND_APPROVAL_METHOD
+                  ? "Command execution"
+                  : "File change";
+              const subtitle =
+                approval.command ?? approval.parsedCmdText ?? approval.reason ?? "";
+
+              return (
+                <View key={approval.requestId} style={styles.approvalRow}>
+                  <Text selectable style={styles.transcriptTitle}>
+                    {methodLabel}
+                  </Text>
+                  <Text selectable style={styles.muted}>
+                    Item: {approval.itemId}
+                  </Text>
+                  {approval.cwd ? (
+                    <Text selectable style={styles.muted}>
+                      CWD: {approval.cwd}
+                    </Text>
+                  ) : null}
+                  {approval.risk ? (
+                    <Text selectable style={styles.approvalRisk}>
+                      Risk: {approval.risk}
+                    </Text>
+                  ) : null}
+                  {subtitle ? (
+                    <Text selectable style={styles.transcriptText}>
+                      {subtitle}
+                    </Text>
+                  ) : null}
+                  <View style={styles.buttonRow}>
+                    <Button
+                      title="Accept"
+                      onPress={() => {
+                        respondToApproval(approval.requestId, "accept");
+                      }}
+                    />
+                    <Button
+                      title="Decline"
+                      onPress={() => {
+                        respondToApproval(approval.requestId, "decline");
+                      }}
+                    />
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
+      </View>
+
+      <View style={styles.card}>
+        <Text selectable style={styles.sectionTitle}>
           Transcript
         </Text>
         {session.transcript.length === 0 ? (
@@ -551,6 +803,17 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 10,
     gap: 6
+  },
+  approvalRow: {
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 10,
+    padding: 10,
+    gap: 6
+  },
+  approvalRisk: {
+    fontSize: 13,
+    color: "#7c2d12"
   },
   transcriptTitle: {
     fontSize: 13,

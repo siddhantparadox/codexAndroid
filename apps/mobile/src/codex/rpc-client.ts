@@ -32,6 +32,11 @@ type CodexRpcClientOptions = {
   requestTimeoutMs?: number;
   onBridgeMessage?: (message: BridgeControlMessage) => void;
   onNotification?: (method: string, params: unknown) => void;
+  onServerRequest?: (request: {
+    id: number;
+    method: string;
+    params: unknown;
+  }) => Promise<unknown> | unknown;
   onClose?: () => void;
 };
 
@@ -52,6 +57,17 @@ const isResponseMessage = (
   return (
     typeof id === "number" &&
     (Object.hasOwn(message, "result") || Object.hasOwn(message, "error"))
+  );
+};
+
+const isServerRequestMessage = (
+  message: Record<string, unknown>
+): message is { id: number; method: string; params?: unknown } => {
+  return (
+    typeof message.id === "number" &&
+    typeof message.method === "string" &&
+    !Object.hasOwn(message, "result") &&
+    !Object.hasOwn(message, "error")
   );
 };
 
@@ -172,9 +188,56 @@ export class CodexRpcClient {
       return;
     }
 
+    if (isServerRequestMessage(message)) {
+      void this.handleServerRequest(message);
+      return;
+    }
+
     const method = message.method;
     if (typeof method === "string") {
       this.options.onNotification?.(method, message.params);
+    }
+  }
+
+  private async handleServerRequest(message: {
+    id: number;
+    method: string;
+    params?: unknown;
+  }): Promise<void> {
+    if (!this.options.onServerRequest) {
+      this.trySendServerReply({
+        id: message.id,
+        error: {
+          code: -32601,
+          message: `Client cannot handle method: ${message.method}`
+        }
+      });
+      return;
+    }
+
+    try {
+      const result = await this.options.onServerRequest({
+        id: message.id,
+        method: message.method,
+        params: message.params
+      });
+
+      this.trySendServerReply({
+        id: message.id,
+        result
+      });
+    } catch (caughtError) {
+      const messageText =
+        caughtError instanceof Error
+          ? caughtError.message
+          : `Request handling failed for method: ${message.method}`;
+      this.trySendServerReply({
+        id: message.id,
+        error: {
+          code: -32000,
+          message: messageText
+        }
+      });
     }
   }
 
@@ -207,5 +270,17 @@ export class CodexRpcClient {
       pending.reject(error);
     }
     this.pending.clear();
+  }
+
+  private trySendServerReply(message: {
+    id: number;
+    result?: unknown;
+    error?: { code: number; message: string };
+  }): void {
+    try {
+      this.socket.send(JSON.stringify(message));
+    } catch {
+      // If the socket is already closed, the request can no longer be answered.
+    }
   }
 }

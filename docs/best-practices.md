@@ -13,6 +13,9 @@
 - Use a dedicated request/response manager for app-server JSON-RPC (`id` tracking + timeout + close/error fanout), not ad-hoc `onmessage` logic in UI components.
 - Keep turn/item stream processing in a pure reducer and unit-test key method paths (`item/started`, deltas, `item/completed`, `turn/completed`).
 - Use optimistic local user transcript entries before remote turn stream starts to improve responsiveness.
+- Treat server-initiated approval events as first-class request/response flows with explicit request-id resolver maps and deterministic cleanup on disconnect.
+- Cap reconnect backoff and guard against duplicate timers to avoid reconnect storms after transient bridge/socket failures.
+- Keep reconnect delay calculations and approval payload parsing in pure modules with dedicated unit tests.
 
 ## Product constraints (v1)
 

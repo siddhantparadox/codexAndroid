@@ -12,5 +12,8 @@
 - Bridge control envelopes (`__bridge`) and app-server JSON-RPC can share one socket safely when the client explicitly routes and ignores bridge control payloads.
 - Turn streaming is stable when notifications are normalized into one reducer (`applyCodexNotification`) and UI only consumes derived transcript state.
 - Optimistic local user prompt insertion helps avoid perceived latency before `turn/start` response/stream notifications arrive.
+- Approval request handling is cleaner when parsing into a typed queue model (`PendingApproval`) before touching UI state.
+- Reconnect logic is safer when delay math is isolated in a pure helper and tested independently from React lifecycle code.
+- Server-initiated request replies may resolve on a microtask boundary even with synchronous handlers; tests should await at least one microtask tick before assertions.
 
 Add new entries with date, context, and impact.

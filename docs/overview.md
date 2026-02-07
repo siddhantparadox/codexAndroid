@@ -35,4 +35,9 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
   - `thread/start` on first prompt when no active thread exists
   - `turn/start` for user prompts
   - streaming transcript updates from `turn/*` and `item/*` notifications
+- Mobile approval flow now handles server-initiated requests:
+  - `item/commandExecution/requestApproval`
+  - `item/fileChange/requestApproval`
+  - explicit accept/decline responses from app UI
+- Mobile connection lifecycle now supports reconnect with exponential backoff after unexpected disconnects
 - Docs folder now tracks decisions, learnings, mistakes, and best practices

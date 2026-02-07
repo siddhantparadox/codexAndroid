@@ -71,4 +71,50 @@ describe("CodexRpcClient", () => {
 
     await expect(requestPromise).rejects.toThrow(/socket closed/i);
   });
+
+  it("responds to server-initiated requests using onServerRequest", async () => {
+    const socket = new FakeRpcSocket();
+    new CodexRpcClient(socket, {
+      requestTimeoutMs: 100,
+      onServerRequest: ({ method }) => {
+        if (method === "item/commandExecution/requestApproval") {
+          return { decision: "accept" };
+        }
+        return { decision: "decline" };
+      }
+    });
+
+    socket.emitMessage({
+      id: 200,
+      method: "item/commandExecution/requestApproval",
+      params: { itemId: "cmd_1" }
+    });
+
+    await Promise.resolve();
+
+    const response = JSON.parse(socket.sent[0]) as {
+      id: number;
+      result: { decision: string };
+    };
+    expect(response.id).toBe(200);
+    expect(response.result.decision).toBe("accept");
+  });
+
+  it("returns error for unhandled server requests", async () => {
+    const socket = new FakeRpcSocket();
+    new CodexRpcClient(socket, { requestTimeoutMs: 100 });
+
+    socket.emitMessage({
+      id: 300,
+      method: "item/fileChange/requestApproval",
+      params: { itemId: "change_1" }
+    });
+
+    const response = JSON.parse(socket.sent[0]) as {
+      id: number;
+      error: { code: number; message: string };
+    };
+    expect(response.id).toBe(300);
+    expect(response.error.code).toBe(-32601);
+  });
 });
