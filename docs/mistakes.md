@@ -25,6 +25,14 @@
 - Root cause: Test setup used `timeoutMs` shorter than `intervalMs`, so the first ping timed out before the next interval as designed.
 - Remediation: Updated the test to use a longer timeout for that scenario and retained a separate timeout-specific test case.
 - Prevention rule: For timer-driven tests, explicitly validate interval/timeout relationships before asserting event counts.
+- Mistake: Left machine pairing/connection controls permanently in the `Threads` workflow after introducing multi-screen shell navigation.
+- Root cause: Screen-content separation rules were not revisited after tab architecture was added, so operational controls stayed in the execution screen.
+- Remediation: Moved machine controls to `Settings` and kept a disconnected-only fallback card in `Threads`.
+- Prevention rule: For each new screen split, explicitly classify each card as `workflow` vs `configuration` and enforce that split in UI placement helpers/tests.
+- Mistake: Left turn submission ungated while unauthenticated account states were possible (`authMode: none`).
+- Root cause: Auth controls existed in Settings, but the send action path did not enforce account prerequisites.
+- Remediation: Added a turn-submit auth gate and redirected unauthenticated send attempts to auth choices (ChatGPT/API key).
+- Prevention rule: For every privileged action, implement prerequisite checks in the action handler itself, not only in surrounding screens.
 
 When mistakes happen, document:
 - what happened

@@ -59,4 +59,10 @@
 - On Windows bridge hosts, spawning `codex` by bare command can fail with `ENOENT`; defaulting bridge launch to `codex.cmd` avoids PATH/PATHEXT resolution gaps.
 - `moti@0.30.0` pulls a deprecated RN `SafeAreaView` path on import; replacing `MotiView` usage with Reanimated/native views removes the warning in SDK 54 runtimes.
 
+## 2026-02-08
+
+- Thread-first workflows are less noisy when machine pairing/connection controls live in `Settings`; keeping a disconnected-only fallback card in `Threads` preserves quick recovery without crowding the connected state.
+- A dedicated `Agent` screen works better when thread selection creates an explicit opened-thread list; this keeps active execution context visible while still letting `Threads` stay focused on archive/library operations.
+- Turn submission should enforce auth gates at action time (`Run` press) even if settings screens already expose login controls.
+
 Add new entries with date, context, and impact.

@@ -51,6 +51,9 @@
 - Prefer diff-first transparency for file approvals: use request-level per-file diffs when present and fall back to aggregated `turn/diff/updated` context.
 - Keep risk reasons structured (`code`, `text`, `explainer`) so UI can present concise labels by default and expand only when users ask for detail.
 - Mirror mobile runtime errors to bridge terminal logs over a typed control message so on-device failures are debuggable from the computer terminal.
+- Keep connection-management controls in `Settings` during normal connected operation; in `Threads`, render them only as a disconnected fallback so execution workflows stay focused.
+- Keep thread browsing (`Threads`) and active execution (`Agent`) as separate surfaces, and maintain an explicit opened-thread list for fast context switching.
+- Enforce authentication checks in the turn-submit action path, then route users to ChatGPT/API-key auth controls when needed.
 
 ## Product constraints (v1)
 

@@ -41,6 +41,7 @@ import {
   type ApprovalDecision,
   type ApprovalResponsePayload
 } from "./src/codex/approval-response";
+import { isAuthRequiredForTurns } from "./src/codex/auth-state";
 import { computeReconnectDelayMs } from "./src/codex/reconnect";
 import { CodexRpcClient, type RpcSocket } from "./src/codex/rpc-client";
 import {
@@ -101,6 +102,8 @@ import {
   getScreenBadgeCount,
   type AppScreenKey
 } from "./src/ui/app-shell";
+import { addOpenedThread, removeOpenedThread } from "./src/ui/agent-workspace";
+import { getMachinePanelPlacement } from "./src/ui/machine-panel";
 
 const asRecord = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -272,6 +275,7 @@ export const App = (): React.ReactElement => {
   const [pendingApprovals, setPendingApprovals] = React.useState<PendingApproval[]>([]);
   const [bootstrap, setBootstrap] = React.useState<BootstrapSnapshot | null>(null);
   const [session, setSession] = React.useState(createInitialSessionState);
+  const [openedThreadIds, setOpenedThreadIds] = React.useState<string[]>([]);
   const [themeName, setThemeName] = React.useState<ThemeName>("carbon");
   const [systemReducedMotion, setSystemReducedMotion] = React.useState(false);
   const [reducedMotionOverride, setReducedMotionOverride] = React.useState<boolean | null>(null);
@@ -320,6 +324,8 @@ export const App = (): React.ReactElement => {
   const theme = themeName === "parchment" ? parchmentTheme : carbonTheme;
   const reducedMotion = reducedMotionOverride ?? systemReducedMotion;
   const connected = Boolean(bootstrap);
+  const authRequiredForTurns = isAuthRequiredForTurns(bootstrap?.authMode);
+  const machinePanelPlacement = getMachinePanelPlacement(connected);
   const connectionHealth: "connected" | "connecting" | "degraded" | "offline" =
     connected
       ? bridgeAppServerState === "error" || bridgeAppServerState === "stopped"
@@ -616,6 +622,7 @@ export const App = (): React.ReactElement => {
     setPairing(parsed);
     setBootstrap(null);
     setSession(createInitialSessionState());
+    setOpenedThreadIds([]);
     resumedThreadIdsRef.current.clear();
     setPendingApprovals([]);
     setCommandAcceptSettingsJson("");
@@ -823,6 +830,7 @@ export const App = (): React.ReactElement => {
     clientRef.current = null;
     previousSocket?.close();
     setBootstrap(null);
+    setOpenedThreadIds([]);
     setConnectionEndpoint(null);
     setConnectionLatencyMs(null);
     setHeartbeatTimeoutCount(0);
@@ -889,6 +897,7 @@ export const App = (): React.ReactElement => {
             const threadId = typeof thread?.id === "string" ? thread.id : null;
             if (threadId) {
               resumedThreadIdsRef.current.add(threadId);
+              setOpenedThreadIds((previous) => addOpenedThread(previous, threadId));
             }
           }
           if (method === "turn/started") {
@@ -933,7 +942,7 @@ export const App = (): React.ReactElement => {
                   ? {
                       ...previous,
                       authMode,
-                      requiresOpenaiAuth: authMode !== "none"
+                      requiresOpenaiAuth: authMode === "none"
                     }
                   : previous
               );
@@ -952,6 +961,7 @@ export const App = (): React.ReactElement => {
           setPendingApprovals([]);
           setBootstrap(null);
           setSession(createInitialSessionState());
+          setOpenedThreadIds([]);
           setConnectionEndpoint(null);
           setConnectionLatencyMs(null);
           setHeartbeatTimeoutCount(0);
@@ -973,6 +983,7 @@ export const App = (): React.ReactElement => {
 
       reconnectAttemptRef.current = 0;
       setSession(createInitialSessionState());
+      setOpenedThreadIds([]);
       resumedThreadIdsRef.current.clear();
       setPendingApprovals([]);
       setCommandAcceptSettingsJson("");
@@ -1327,6 +1338,17 @@ export const App = (): React.ReactElement => {
     }
   }, [bootstrap, isLoadingMoreThreads, showArchivedThreads]);
 
+  const openThreadInAgentWorkspace = React.useCallback((threadId: string): void => {
+    if (!threadId) {
+      return;
+    }
+
+    setSession((previous) => setActiveThreadId(previous, threadId));
+    setOpenedThreadIds((previous) => addOpenedThread(previous, threadId));
+    setActiveScreen("agent");
+    setStatus(`Opened thread ${threadId} in Agent workspace.`);
+  }, []);
+
   const resumeSelectedThread = React.useCallback(async (): Promise<void> => {
     const client = clientRef.current;
     const threadId = sessionRef.current.activeThreadId;
@@ -1365,6 +1387,7 @@ export const App = (): React.ReactElement => {
       }
 
       resumedThreadIdsRef.current.add(forkId);
+      setOpenedThreadIds((previous) => addOpenedThread(previous, forkId));
       setSession((previous): CodexSessionState => ({
         ...previous,
         activeThreadId: forkId,
@@ -1395,6 +1418,7 @@ export const App = (): React.ReactElement => {
       } else {
         await client.request("thread/archive", { threadId });
         resumedThreadIdsRef.current.delete(threadId);
+        setOpenedThreadIds((previous) => removeOpenedThread(previous, threadId));
         setSession((previous): CodexSessionState => ({
           ...previous,
           activeThreadId: null,
@@ -1419,6 +1443,7 @@ export const App = (): React.ReactElement => {
 
   const startNewThread = React.useCallback((): void => {
     setSession((previous) => ({ ...previous, activeThreadId: null, activeTurnId: null, turnStatus: "idle" }));
+    setActiveScreen("agent");
     setStatus("Next turn will start a new thread.");
   }, []);
 
@@ -1426,6 +1451,15 @@ export const App = (): React.ReactElement => {
     const client = clientRef.current;
     const promptText = prompt.trim();
     if (!client || !promptText) {
+      return;
+    }
+
+    if (authRequiredForTurns) {
+      setStatus("Authentication required. Sign in with ChatGPT or use API key.");
+      setActiveScreen("settings");
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(
+        () => undefined
+      );
       return;
     }
 
@@ -1462,9 +1496,13 @@ export const App = (): React.ReactElement => {
 
         resumedThreadIdsRef.current.add(threadId);
         setSession((previous) => setActiveThreadId(previous, threadId as string));
+        setOpenedThreadIds((previous) => addOpenedThread(previous, threadId as string));
       } else {
         threadId = await ensureThreadResumed(client, threadId);
       }
+
+      setOpenedThreadIds((previous) => addOpenedThread(previous, threadId));
+      setActiveScreen("agent");
 
       const turnStartResult = await client.request(
         "turn/start",
@@ -1487,6 +1525,7 @@ export const App = (): React.ReactElement => {
       setStatus("Turn failed to start");
     }
   }, [
+    authRequiredForTurns,
     composerMode,
     ensureThreadResumed,
     effortLevel,
@@ -1601,78 +1640,288 @@ export const App = (): React.ReactElement => {
     );
   };
 
+  const renderMachines = (): React.ReactElement => (
+    <IndexCard theme={theme} accent={connected ? "acid" : pairing ? "amber" : "danger"}>
+      <Typo theme={theme} variant="heading" tone="paper" weight="semibold">Machines</Typo>
+      <Typo theme={theme} variant="small" tone="paper">{pairing ? pairing.name : "No paired computer"}</Typo>
+      <Typo theme={theme} variant="micro" tone="paper">{getConnectionLabel(connectionEndpoint, connectionLatencyMs)}</Typo>
+      {lastConnectionHint ? (
+        <Typo theme={theme} variant="micro" tone="paper">{lastConnectionHint}</Typo>
+      ) : null}
+      <View style={styles.actionRow}>
+        <ActionButton
+          theme={theme}
+          style={styles.actionButtonFlex}
+          label={isScannerVisible ? "Close Scanner" : "Pair by QR"}
+          onPress={() => setIsScannerVisible((value) => !value)}
+          tone="acid"
+        />
+        <ActionButton
+          theme={theme}
+          style={styles.actionButtonFlex}
+          label={isLoading ? "Connecting..." : "Connect"}
+          onPress={() => {
+            void connectToBridge();
+          }}
+          disabled={!pairing || isLoading}
+          tone="outline"
+        />
+        <ActionButton
+          theme={theme}
+          style={styles.actionButtonFlex}
+          label="Disconnect"
+          onPress={disconnectBridge}
+          disabled={!connected}
+          tone="danger"
+        />
+      </View>
+      <TextInput
+        value={manualPayload}
+        onChangeText={setManualPayload}
+        placeholder="Paste pairing JSON"
+        placeholderTextColor={theme.mode === "carbon" ? "#5E5F63" : "#868079"}
+        autoCapitalize="none"
+        autoCorrect={false}
+        multiline
+        style={[styles.input, { backgroundColor: theme.cardAlt, borderColor: theme.cardHairline, color: theme.cardText }]}
+      />
+      <View style={styles.actionRow}>
+        <ActionButton
+          theme={theme}
+          style={styles.actionButtonFlex}
+          label="Apply JSON"
+          onPress={() => {
+            void submitManualPayload();
+          }}
+          disabled={!manualPayload.trim()}
+          tone="outline"
+        />
+        <ActionButton
+          theme={theme}
+          style={styles.actionButtonFlex}
+          label="Forget Pairing"
+          onPress={() => {
+            void forgetPairing();
+          }}
+          disabled={!pairing}
+          tone="panel"
+        />
+      </View>
+    </IndexCard>
+  );
+
   const renderThreads = (): React.ReactElement => (
     <View style={styles.screenStack}>
-      <IndexCard theme={theme} accent={connected ? "acid" : pairing ? "amber" : "danger"}>
-        <Typo theme={theme} variant="heading" tone="paper" weight="semibold">Machines</Typo>
-        <Typo theme={theme} variant="small" tone="paper">{pairing ? pairing.name : "No paired computer"}</Typo>
-        <Typo theme={theme} variant="micro" tone="paper">{getConnectionLabel(connectionEndpoint, connectionLatencyMs)}</Typo>
-        {lastConnectionHint ? (
-          <Typo theme={theme} variant="micro" tone="paper">{lastConnectionHint}</Typo>
-        ) : null}
-        <View style={styles.actionRow}>
-          <ActionButton
+      {machinePanelPlacement.showInThreads ? renderMachines() : null}
+
+      <IndexCard theme={theme} accent="cyan">
+        <Typo theme={theme} variant="heading" tone="paper" weight="semibold">Thread Library</Typo>
+        <Typo theme={theme} variant="micro" tone="paper">
+          Select a thread to open it in Agent.
+        </Typo>
+        <View style={styles.chipRow}>
+          <Chip
             theme={theme}
-            style={styles.actionButtonFlex}
-            label={isScannerVisible ? "Close Scanner" : "Pair by QR"}
-            onPress={() => setIsScannerVisible((value) => !value)}
-            tone="acid"
-          />
-          <ActionButton
-            theme={theme}
-            style={styles.actionButtonFlex}
-            label={isLoading ? "Connecting..." : "Connect"}
+            label={showArchivedThreads ? "View: archived" : "View: active"}
+            selected={showArchivedThreads}
             onPress={() => {
-              void connectToBridge();
+              const next = !showArchivedThreads;
+              setShowArchivedThreads(next);
+              void refreshThreads(next);
             }}
-            disabled={!pairing || isLoading}
-            tone="outline"
           />
-          <ActionButton
+          <Chip
             theme={theme}
-            style={styles.actionButtonFlex}
-            label="Disconnect"
-            onPress={disconnectBridge}
-            disabled={!connected}
-            tone="danger"
+            label={isRefreshingThreads ? "Refreshing..." : "Refresh Threads"}
+            onPress={() => {
+              void refreshThreads();
+            }}
+            selected={false}
+          />
+          <Chip
+            theme={theme}
+            label={
+              isLoadingMoreThreads
+                ? "Loading more..."
+                : bootstrap?.threadNextCursor
+                  ? "Load More"
+                  : "No More"
+            }
+            selected={Boolean(bootstrap?.threadNextCursor)}
+            onPress={() => {
+              void loadMoreThreads();
+            }}
           />
         </View>
-        <TextInput
-          value={manualPayload}
-          onChangeText={setManualPayload}
-          placeholder="Paste pairing JSON"
-          placeholderTextColor={theme.mode === "carbon" ? "#5E5F63" : "#868079"}
-          autoCapitalize="none"
-          autoCorrect={false}
-          multiline
-          style={[styles.input, { backgroundColor: theme.cardAlt, borderColor: theme.cardHairline, color: theme.cardText }]}
+      </IndexCard>
+
+      <Typo theme={theme} variant="heading" weight="semibold">
+        {showArchivedThreads ? "Archived Threads" : "Thread Archive"}
+      </Typo>
+      <View style={styles.actionRow}>
+        <ActionButton
+          theme={theme}
+          label={isMutatingThread ? "Working..." : "Resume Selected"}
+          onPress={() => {
+            void resumeSelectedThread();
+          }}
+          disabled={!session.activeThreadId || !connected || isMutatingThread}
+          tone="outline"
         />
+        <ActionButton
+          theme={theme}
+          label="Fork Selected"
+          onPress={() => {
+            void forkSelectedThread();
+          }}
+          disabled={!session.activeThreadId || !connected || isMutatingThread}
+          tone="panel"
+        />
+        <ActionButton
+          theme={theme}
+          label={showArchivedThreads ? "Unarchive Selected" : "Archive Selected"}
+          onPress={() => {
+            void archiveOrUnarchiveSelectedThread();
+          }}
+          disabled={!session.activeThreadId || !connected || isMutatingThread}
+          tone={showArchivedThreads ? "outline" : "danger"}
+        />
+      </View>
+      {!bootstrap || bootstrap.threads.length === 0 ? (
+        <View style={[styles.emptyState, { backgroundColor: theme.panel, borderColor: theme.hairline }]}>
+          <Typo theme={theme} variant="small" tone="muted">
+            {showArchivedThreads ? "No archived threads loaded." : "No threads loaded yet."}
+          </Typo>
+        </View>
+      ) : (
+        bootstrap.threads.map((thread, index) => {
+          const isActiveThread = session.activeThreadId === thread.id;
+          const isOpenedThread = openedThreadIds.includes(thread.id);
+          return (
+            <Animated.View
+              key={thread.id}
+              entering={FadeInDown.duration(180).delay(index * 40)}
+            >
+              <Pressable
+                onPress={() => {
+                  openThreadInAgentWorkspace(thread.id);
+                }}
+              >
+                <IndexCard
+                  theme={theme}
+                  tilt={index % 2 === 0 ? 0.8 : -0.8}
+                  accent={isActiveThread ? "acid" : isOpenedThread ? "amber" : "cyan"}
+                >
+                  <Typo theme={theme} variant="small" tone="paper" weight="display">{clip(thread.preview, 80)}</Typo>
+                  <View style={styles.threadMetaRow}>
+                    <Typo theme={theme} variant="micro" tone="paper">
+                      {(thread.modelProvider ?? "unknown")} • {(thread.sourceKind ?? "app")}
+                    </Typo>
+                    <Typo theme={theme} variant="micro" tone="paper">
+                      {formatThreadTimestamp(thread.updatedAt ?? thread.createdAt)}
+                    </Typo>
+                  </View>
+                  {thread.archived ? (
+                    <Typo theme={theme} variant="micro" tone="paper" weight="semibold">
+                      Archived
+                    </Typo>
+                  ) : null}
+                  <Typo theme={theme} variant="micro" tone="paper">{thread.id}</Typo>
+                </IndexCard>
+              </Pressable>
+            </Animated.View>
+          );
+        })
+      )}
+    </View>
+  );
+
+  const renderAgent = (): React.ReactElement => (
+    <View style={styles.screenStack}>
+      <IndexCard theme={theme} accent="acid">
+        <Typo theme={theme} variant="heading" tone="paper" weight="semibold">Agent Workspace</Typo>
+        <Typo theme={theme} variant="micro" tone="paper">
+          Active thread: {session.activeThreadId ?? "New thread"}
+        </Typo>
+        {openedThreadIds.length > 0 ? (
+          <View style={styles.screenStack}>
+            {openedThreadIds.map((threadId) => {
+              const thread = bootstrap?.threads.find((entry) => entry.id === threadId);
+              return (
+                <Pressable
+                  key={threadId}
+                  onPress={() => {
+                    setSession((previous) => setActiveThreadId(previous, threadId));
+                    setStatus(`Switched to thread ${threadId}.`);
+                  }}
+                >
+                  <IndexCard
+                    theme={theme}
+                    accent={session.activeThreadId === threadId ? "acid" : "cyan"}
+                  >
+                    <Typo theme={theme} variant="small" tone="paper" weight="display">
+                      {thread ? clip(thread.preview, 80) : clip(threadId, 80)}
+                    </Typo>
+                    <Typo theme={theme} variant="micro" tone="paper">
+                      {threadId}
+                    </Typo>
+                  </IndexCard>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : (
+          <Typo theme={theme} variant="micro" tone="paper">
+            No opened threads yet. Open one from Threads.
+          </Typo>
+        )}
         <View style={styles.actionRow}>
           <ActionButton
             theme={theme}
             style={styles.actionButtonFlex}
-            label="Apply JSON"
-            onPress={() => {
-              void submitManualPayload();
-            }}
-            disabled={!manualPayload.trim()}
+            label="Open Threads"
+            onPress={() => setActiveScreen("threads")}
             tone="outline"
           />
           <ActionButton
             theme={theme}
             style={styles.actionButtonFlex}
-            label="Forget Pairing"
-            onPress={() => {
-              void forgetPairing();
-            }}
-            disabled={!pairing}
+            label="New Thread"
+            onPress={startNewThread}
+            disabled={!clientRef.current}
             tone="panel"
           />
         </View>
       </IndexCard>
 
-      <IndexCard theme={theme} accent="acid">
+      <IndexCard theme={theme} accent={authRequiredForTurns ? "amber" : "acid"}>
         <Typo theme={theme} variant="heading" tone="paper" weight="semibold">Composer</Typo>
+        {authRequiredForTurns ? (
+          <View style={[styles.emptyState, { borderColor: theme.cardHairline, backgroundColor: theme.cardAlt }]}>
+            <Typo theme={theme} variant="small" tone="paper">
+              Sign in before sending a prompt.
+            </Typo>
+            <View style={styles.actionRow}>
+              <ActionButton
+                theme={theme}
+                style={styles.actionButtonFlex}
+                label={isAuthSubmitting ? "Starting..." : "Sign in ChatGPT"}
+                onPress={() => {
+                  void startChatgptLogin();
+                }}
+                disabled={!connected || isAuthSubmitting}
+                tone="acid"
+              />
+              <ActionButton
+                theme={theme}
+                style={styles.actionButtonFlex}
+                label="Use API Key"
+                onPress={() => setActiveScreen("settings")}
+                tone="outline"
+              />
+            </View>
+          </View>
+        ) : null}
         <View style={styles.chipRow}>
           <Chip theme={theme} label={`Mode: ${composerMode}`} selected={composerMode === "agent"} onPress={() => setComposerMode((value) => value === "agent" ? "chat" : "agent")} />
           <Chip theme={theme} label={`Network: ${networkAccess}`} selected={networkAccess === "on"} onPress={() => setNetworkAccess((value) => value === "on" ? "off" : "on")} />
@@ -1717,38 +1966,6 @@ export const App = (): React.ReactElement => {
               setShowToolCalls((value) => !value);
             }}
           />
-          <Chip
-            theme={theme}
-            label={showArchivedThreads ? "View: archived" : "View: active"}
-            selected={showArchivedThreads}
-            onPress={() => {
-              const next = !showArchivedThreads;
-              setShowArchivedThreads(next);
-              void refreshThreads(next);
-            }}
-          />
-          <Chip
-            theme={theme}
-            label={isRefreshingThreads ? "Refreshing..." : "Refresh Threads"}
-            onPress={() => {
-              void refreshThreads();
-            }}
-            selected={false}
-          />
-          <Chip
-            theme={theme}
-            label={
-              isLoadingMoreThreads
-                ? "Loading more..."
-                : bootstrap?.threadNextCursor
-                  ? "Load More"
-                  : "No More"
-            }
-            selected={Boolean(bootstrap?.threadNextCursor)}
-            onPress={() => {
-              void loadMoreThreads();
-            }}
-          />
         </View>
         <TextInput
           value={prompt}
@@ -1760,82 +1977,18 @@ export const App = (): React.ReactElement => {
           style={[styles.input, { backgroundColor: theme.cardAlt, borderColor: theme.cardHairline, color: theme.cardText }]}
         />
         <View style={styles.actionRow}>
-          <ActionButton theme={theme} label="Run" onPress={() => { void runTurn(); }} disabled={!clientRef.current || isLoading || !prompt.trim()} tone="acid" />
+          <ActionButton
+            theme={theme}
+            label={authRequiredForTurns ? "Auth to Run" : "Run"}
+            onPress={() => {
+              void runTurn();
+            }}
+            disabled={!clientRef.current || isLoading || !prompt.trim()}
+            tone={authRequiredForTurns ? "outline" : "acid"}
+          />
           <ActionButton theme={theme} label="New Thread" onPress={startNewThread} disabled={!clientRef.current} tone="outline" />
         </View>
       </IndexCard>
-
-      <Typo theme={theme} variant="heading" weight="semibold">
-        {showArchivedThreads ? "Archived Threads" : "Thread Archive"}
-      </Typo>
-      <View style={styles.actionRow}>
-        <ActionButton
-          theme={theme}
-          label={isMutatingThread ? "Working..." : "Resume Selected"}
-          onPress={() => {
-            void resumeSelectedThread();
-          }}
-          disabled={!session.activeThreadId || !connected || isMutatingThread}
-          tone="outline"
-        />
-        <ActionButton
-          theme={theme}
-          label="Fork Selected"
-          onPress={() => {
-            void forkSelectedThread();
-          }}
-          disabled={!session.activeThreadId || !connected || isMutatingThread}
-          tone="panel"
-        />
-        <ActionButton
-          theme={theme}
-          label={showArchivedThreads ? "Unarchive Selected" : "Archive Selected"}
-          onPress={() => {
-            void archiveOrUnarchiveSelectedThread();
-          }}
-          disabled={!session.activeThreadId || !connected || isMutatingThread}
-          tone={showArchivedThreads ? "outline" : "danger"}
-        />
-      </View>
-      {!bootstrap || bootstrap.threads.length === 0 ? (
-        <View style={[styles.emptyState, { backgroundColor: theme.panel, borderColor: theme.hairline }]}>
-          <Typo theme={theme} variant="small" tone="muted">
-            {showArchivedThreads ? "No archived threads loaded." : "No threads loaded yet."}
-          </Typo>
-        </View>
-      ) : (
-        bootstrap.threads.map((thread, index) => (
-          <Animated.View
-            key={thread.id}
-            entering={FadeInDown.duration(180).delay(index * 40)}
-          >
-            <Pressable
-              onPress={() => {
-                setSession((previous) => setActiveThreadId(previous, thread.id));
-                setStatus(`Selected thread ${thread.id}.`);
-              }}
-            >
-              <IndexCard theme={theme} tilt={index % 2 === 0 ? 0.8 : -0.8} accent={session.activeThreadId === thread.id ? "acid" : "cyan"}>
-                <Typo theme={theme} variant="small" tone="paper" weight="display">{clip(thread.preview, 80)}</Typo>
-                <View style={styles.threadMetaRow}>
-                  <Typo theme={theme} variant="micro" tone="paper">
-                    {(thread.modelProvider ?? "unknown")} • {(thread.sourceKind ?? "app")}
-                  </Typo>
-                  <Typo theme={theme} variant="micro" tone="paper">
-                    {formatThreadTimestamp(thread.updatedAt ?? thread.createdAt)}
-                  </Typo>
-                </View>
-                {thread.archived ? (
-                  <Typo theme={theme} variant="micro" tone="paper" weight="semibold">
-                    Archived
-                  </Typo>
-                ) : null}
-                <Typo theme={theme} variant="micro" tone="paper">{thread.id}</Typo>
-              </IndexCard>
-            </Pressable>
-          </Animated.View>
-        ))
-      )}
 
       <Typo theme={theme} variant="heading" weight="semibold">Timeline</Typo>
       {session.transcript.length === 0 ? (
@@ -1994,6 +2147,7 @@ export const App = (): React.ReactElement => {
 
   const renderSettings = (): React.ReactElement => (
     <View style={styles.screenStack}>
+      {machinePanelPlacement.showInSettings ? renderMachines() : null}
       <IndexCard theme={theme} accent="cyan">
         <Typo theme={theme} variant="heading" tone="paper" weight="semibold">Appearance</Typo>
         <View style={styles.chipRow}>
@@ -2173,6 +2327,7 @@ export const App = (): React.ReactElement => {
           </View>
 
           {activeScreen === "threads" ? renderThreads() : null}
+          {activeScreen === "agent" ? renderAgent() : null}
           {activeScreen === "approvals" ? renderApprovals() : null}
           {activeScreen === "settings" ? renderSettings() : null}
         </ScrollView>

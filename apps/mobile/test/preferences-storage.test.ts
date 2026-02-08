@@ -27,7 +27,7 @@ describe("preferences storage", () => {
   it("persists and loads runtime preferences", async () => {
     const store = new InMemoryStore();
     await persistPreferencesToStore(store, {
-      activeScreen: "settings",
+      activeScreen: "agent",
       themeName: "parchment",
       reducedMotionOverride: true,
       composerMode: "chat",
@@ -41,7 +41,7 @@ describe("preferences storage", () => {
 
     const loaded = await loadPreferencesFromStore(store);
     expect(loaded).toEqual({
-      activeScreen: "settings",
+      activeScreen: "agent",
       themeName: "parchment",
       reducedMotionOverride: true,
       composerMode: "chat",

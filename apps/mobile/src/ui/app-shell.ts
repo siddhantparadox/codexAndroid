@@ -1,4 +1,4 @@
-export type AppScreenKey = "threads" | "approvals" | "settings";
+export type AppScreenKey = "threads" | "agent" | "approvals" | "settings";
 
 export type AppScreenMeta = {
   key: AppScreenKey;
@@ -7,6 +7,7 @@ export type AppScreenMeta = {
 
 export const APP_SCREENS: AppScreenMeta[] = [
   { key: "threads", title: "Threads" },
+  { key: "agent", title: "Agent" },
   { key: "approvals", title: "Approvals" },
   { key: "settings", title: "Settings" }
 ];
@@ -21,6 +22,10 @@ export const getScreenBadgeCount = (
 
   if (key === "threads") {
     return counts.threadItems;
+  }
+
+  if (key === "agent") {
+    return counts.transcriptItems;
   }
 
   return 0;

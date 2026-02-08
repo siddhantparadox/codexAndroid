@@ -62,7 +62,7 @@ const isReasoningMode = (value: unknown): value is ReasoningMode =>
   value === "summary" || value === "raw";
 
 const isAppScreenKey = (value: unknown): value is AppScreenKey =>
-  value === "threads" || value === "approvals" || value === "settings";
+  value === "threads" || value === "agent" || value === "approvals" || value === "settings";
 
 const parsePreferencesRecord = (value: unknown): UserPreferences | null => {
   const record = asRecord(value);

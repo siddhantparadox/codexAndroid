@@ -39,6 +39,7 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
 - Mobile turn flow now includes:
   - `thread/start` on first prompt when no active thread exists
   - `thread/resume` before `turn/start` when an existing archived/listed thread is selected
+  - auth gate before `turn/start` when account state is unauthenticated (`authMode: none`)
   - `turn/start` for user prompts
   - streaming transcript updates from `turn/*` and `item/*` notifications
 - Mobile approval flow now handles server-initiated requests:
@@ -74,16 +75,17 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
   - `turn/plan/updated` projection into plan cards
   - `turn/diff/updated` projection into a unified diff card experience
   - `item/plan/delta` and `item/reasoning/summaryTextDelta` streaming text support
-- Mobile UI now uses an editorial "paper on carbon" shell with three primary tabs:
-  - `Threads`: machine controls, composer, index-card thread archive, transcript timeline
+- Mobile UI now uses an editorial "paper on carbon" shell with four primary tabs:
+  - `Threads`: machine fallback (when disconnected), thread-library management, and archive controls
+  - `Agent`: opened-thread workspace, composer, and transcript timeline
   - `Approvals`: dedicated approval desk with explicit approve/decline actions
-  - `Settings`: appearance/safety/diagnostics controls
+  - `Settings`: machine controls, appearance/safety/diagnostics controls
 - Mobile design system added:
   - Carbon/Parchment theme tokens
   - Fraunces + Commissioner + Azeret Mono font system
   - reusable primitives (`AppBackground`, `Typo`, `IndexCard`, `Chip`, `Stamp`, `PierreDiffCard`)
 - Mobile runtime preferences are now persisted across app restarts:
-  - active screen (`threads`, `approvals`, `settings`)
+  - active screen (`threads`, `agent`, `approvals`, `settings`)
   - appearance (`themeName`, motion override)
   - composer defaults (`mode`, `network`, `effort`, `reasoning`)
   - model preference (`selectedModelId`) with runtime validation against available models
