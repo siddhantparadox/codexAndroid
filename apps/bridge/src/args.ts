@@ -43,11 +43,12 @@ const parseToken = (value: string | undefined): string => {
 };
 
 export const parseBridgeArgs = (argv: string[], cwd: string): BridgeArgs => {
+  const defaultCodexBin = process.platform === "win32" ? "codex.cmd" : "codex";
   const host = parseFlag(argv, "--host") ?? "0.0.0.0";
   const port = parsePort(parseFlag(argv, "--port"));
   const token = parseToken(parseFlag(argv, "--token"));
   const name = parseFlag(argv, "--name") ?? "Codex Mobile Bridge";
-  const codexBin = parseFlag(argv, "--codex-bin") ?? "codex";
+  const codexBin = parseFlag(argv, "--codex-bin") ?? defaultCodexBin;
   const autoOpenAuthUrl = !hasFlag(argv, "--no-open-auth-url");
 
   return {

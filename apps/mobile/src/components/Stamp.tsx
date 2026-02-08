@@ -1,6 +1,11 @@
-import { MotiView } from "moti";
 import React from "react";
 import { StyleSheet } from "react-native";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming
+} from "react-native-reanimated";
 import type { Theme } from "../theme/tokens";
 import { radii, space } from "../theme/tokens";
 import { Typo } from "./Typo";
@@ -17,27 +22,35 @@ export function Stamp({
   reducedMotion?: boolean;
 }): React.ReactElement {
   const color = kind === "approved" ? theme.acid : theme.danger;
+  const opacity = useSharedValue(visible ? 1 : 0);
+  const scale = useSharedValue(visible ? 1 : reducedMotion ? 1 : 2.2);
+
+  React.useEffect(() => {
+    if (reducedMotion) {
+      opacity.value = withTiming(visible ? 1 : 0, { duration: 160 });
+      scale.value = withTiming(1, { duration: 160 });
+      return;
+    }
+
+    opacity.value = withTiming(visible ? 1 : 0, {
+      duration: visible ? 140 : 120
+    });
+    scale.value = withSpring(visible ? 1 : 2.2, {
+      damping: 12,
+      stiffness: 220,
+      mass: 0.7
+    });
+  }, [opacity, reducedMotion, scale, visible]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }, { rotate: "-12deg" }]
+  }));
 
   return (
-    <MotiView
+    <Animated.View
       pointerEvents="none"
-      from={{ opacity: 0, scale: reducedMotion ? 1 : 2.2, rotate: "-12deg" }}
-      animate={
-        visible
-          ? { opacity: 1, scale: 1, rotate: "-12deg" }
-          : { opacity: 0, scale: reducedMotion ? 1 : 2.2, rotate: "-12deg" }
-      }
-      transition={
-        reducedMotion
-          ? { type: "timing", duration: 160 }
-          : {
-              type: "spring",
-              damping: 12,
-              stiffness: 220,
-              mass: 0.7
-            }
-      }
-      style={[styles.stamp, { borderColor: color }]}
+      style={[styles.stamp, { borderColor: color }, animatedStyle]}
     >
       <Typo theme={theme} variant="heading" weight="display" style={{ color }}>
         {kind === "approved" ? "APPROVED" : "DECLINED"}
@@ -45,7 +58,7 @@ export function Stamp({
       <Typo theme={theme} variant="micro" tone="muted" style={{ marginTop: 2 }}>
         codex mobile
       </Typo>
-    </MotiView>
+    </Animated.View>
   );
 }
 

@@ -56,5 +56,7 @@
 - For Expo SDK dependency alignment, prefer `expo install <pkg>` over manual semver edits so native module versions match SDK expectations automatically.
 - `WorkletsError: ... Couldn't determine native part of Worklets` on Expo Go usually means JS/native version skew; pin `react-native-worklets` to Expo-compatible version (SDK 54: `0.5.1`) and restart Metro with cache clear.
 - In the Carbon theme, outline buttons rendered on paper cards must use `theme.cardText` (not `theme.text`) or labels become effectively invisible.
+- On Windows bridge hosts, spawning `codex` by bare command can fail with `ENOENT`; defaulting bridge launch to `codex.cmd` avoids PATH/PATHEXT resolution gaps.
+- `moti@0.30.0` pulls a deprecated RN `SafeAreaView` path on import; replacing `MotiView` usage with Reanimated/native views removes the warning in SDK 54 runtimes.
 
 Add new entries with date, context, and impact.

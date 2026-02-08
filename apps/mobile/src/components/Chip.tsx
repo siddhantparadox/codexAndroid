@@ -1,7 +1,6 @@
 import * as Haptics from "expo-haptics";
-import { MotiView } from "moti";
 import React from "react";
-import { Pressable, StyleSheet } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import type { Theme } from "../theme/tokens";
 import { radii, space } from "../theme/tokens";
 import { Typo } from "./Typo";
@@ -32,10 +31,15 @@ export function Chip({
       }}
     >
       {({ pressed }) => (
-        <MotiView
-          animate={{ scale: pressed ? 0.98 : 1 }}
-          transition={{ type: "timing", duration: 110 }}
-          style={[styles.chip, { backgroundColor: bg, borderColor: border }]}
+        <View
+          style={[
+            styles.chip,
+            {
+              backgroundColor: bg,
+              borderColor: border,
+              transform: [{ scale: pressed ? 0.98 : 1 }]
+            }
+          ]}
         >
           <Typo
             theme={theme}
@@ -46,7 +50,7 @@ export function Chip({
           >
             {label}
           </Typo>
-        </MotiView>
+        </View>
       )}
     </Pressable>
   );

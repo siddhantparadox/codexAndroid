@@ -14,14 +14,17 @@ import { extractChatgptAuthUrl, openExternalUrl } from "./auth-url.js";
 import { writeClientLog } from "./client-log.js";
 import { resolveBridgeEndpoints } from "./network.js";
 import { pairingPayloadToQrText, printPairingQr } from "./pairing-qr.js";
+import { shouldUseShellForCodex } from "./spawn.js";
 
 const cwd = process.cwd();
 const args = parseBridgeArgs(process.argv.slice(2), cwd);
 const endpoints = resolveBridgeEndpoints(args.port);
+const shouldUseShell = shouldUseShellForCodex(args.codexBin);
 
 const appServer = spawn(args.codexBin, ["app-server"], {
   cwd: args.cwd,
-  stdio: ["pipe", "pipe", "pipe"]
+  stdio: ["pipe", "pipe", "pipe"],
+  shell: shouldUseShell
 });
 
 appServer.stderr.on("data", (chunk) => {

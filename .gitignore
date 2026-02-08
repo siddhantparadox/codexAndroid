@@ -37,3 +37,5 @@ Thumbs.db
 .idea/
 *.iml
 .kotlin/
+
+stitch_thread_index_archive

@@ -9,6 +9,7 @@ describe("parseBridgeArgs", () => {
     expect(parsed.port).toBe(8787);
     expect(parsed.name).toBe("Codex Mobile Bridge");
     expect(parsed.token.length).toBeGreaterThanOrEqual(24);
+    expect(parsed.codexBin).toBe(process.platform === "win32" ? "codex.cmd" : "codex");
     expect(parsed.autoOpenAuthUrl).toBe(true);
   });
 

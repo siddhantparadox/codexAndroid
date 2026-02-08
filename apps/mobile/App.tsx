@@ -1,9 +1,9 @@
 import type { PairingPayload } from "@codex-mobile/protocol";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
-import { MotiView } from "moti";
 import { StatusBar } from "expo-status-bar";
 import React from "react";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -233,15 +233,22 @@ const ActionButton = ({
   return (
     <Pressable onPress={onPress} disabled={disabled}>
       {({ pressed }) => (
-        <MotiView
-          animate={{ scale: pressed && !disabled ? 0.98 : 1, opacity: disabled ? 0.5 : 1 }}
-          transition={{ type: "timing", duration: 120 }}
-          style={[styles.actionButton, { backgroundColor, borderColor }, style]}
+        <View
+          style={[
+            styles.actionButton,
+            {
+              backgroundColor,
+              borderColor,
+              transform: [{ scale: pressed && !disabled ? 0.98 : 1 }],
+              opacity: disabled ? 0.5 : 1
+            },
+            style
+          ]}
         >
           <Typo theme={theme} variant="small" weight="semibold" style={{ color: textColor }}>
             {label}
           </Typo>
-        </MotiView>
+        </View>
       )}
     </Pressable>
   );
@@ -1798,7 +1805,10 @@ export const App = (): React.ReactElement => {
         </View>
       ) : (
         bootstrap.threads.map((thread, index) => (
-          <MotiView key={thread.id} from={{ opacity: 0, translateY: 10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: "timing", duration: 180, delay: index * 40 }}>
+          <Animated.View
+            key={thread.id}
+            entering={FadeInDown.duration(180).delay(index * 40)}
+          >
             <Pressable
               onPress={() => {
                 setSession((previous) => setActiveThreadId(previous, thread.id));
@@ -1823,7 +1833,7 @@ export const App = (): React.ReactElement => {
                 <Typo theme={theme} variant="micro" tone="paper">{thread.id}</Typo>
               </IndexCard>
             </Pressable>
-          </MotiView>
+          </Animated.View>
         ))
       )}
 
