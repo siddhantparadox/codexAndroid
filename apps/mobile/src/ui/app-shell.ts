@@ -1,4 +1,4 @@
-export type AppScreenKey = "connect" | "turn" | "approvals" | "transcript";
+export type AppScreenKey = "threads" | "approvals" | "settings";
 
 export type AppScreenMeta = {
   key: AppScreenKey;
@@ -6,10 +6,9 @@ export type AppScreenMeta = {
 };
 
 export const APP_SCREENS: AppScreenMeta[] = [
-  { key: "connect", title: "Connect" },
-  { key: "turn", title: "Turn" },
+  { key: "threads", title: "Threads" },
   { key: "approvals", title: "Approvals" },
-  { key: "transcript", title: "Transcript" }
+  { key: "settings", title: "Settings" }
 ];
 
 export const getScreenBadgeCount = (
@@ -20,11 +19,7 @@ export const getScreenBadgeCount = (
     return counts.pendingApprovals;
   }
 
-  if (key === "transcript") {
-    return counts.transcriptItems;
-  }
-
-  if (key === "turn") {
+  if (key === "threads") {
     return counts.threadItems;
   }
 

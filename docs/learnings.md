@@ -24,5 +24,9 @@
 - Runtime stability improves when thread context is user-selectable; implicit new-thread creation should be the fallback, not the primary path.
 - Parsing `thread/list` responses in a shared pure module reduces duplication between bootstrap and interactive refresh flows.
 - A 30s default RPC timeout is a safer baseline for mobile + local bridge conditions than 8s.
+- A reusable theme/component layer (`theme/*` + `components/*`) prevents app-state logic and visual styling from coupling in `App.tsx`.
+- Approval interactions feel safer when decision feedback is immediate and multimodal (visual stamp + haptic), even before backend completion is visible.
+- Slight card tilt variation is enough to create an index-card identity; large transforms hurt readability on small screens.
+- Reduced-motion support should be wired before adding signature animation so product identity does not conflict with accessibility requirements.
 
 Add new entries with date, context, and impact.

@@ -65,3 +65,9 @@
 - Decision: Raise mobile JSON-RPC default timeout from 8s to 30s.
 - Why: On slower devices or bridge/app-server warm states, 8s can cause false-negative timeout errors for otherwise successful requests.
 - Consequence: Fewer transient timeout failures; request-level overrides remain available for tests/specific flows.
+
+## 2026-02-08 - Adopt editorial mobile shell for v1 runtime workflows
+
+- Decision: Replace the early utilitarian mobile screen set with a distinct editorial shell using index-card threads, stamp-based approvals, and a three-tab IA (`Threads`, `Approvals`, `Settings`).
+- Why: v1 requires high trust for remote execution decisions; stronger visual hierarchy and signature interactions improve scanability and decision confidence on phone-sized screens.
+- Consequence: UI now depends on a dedicated design system layer (theme tokens, custom fonts, reusable primitives), plus animation/haptics packages for interaction feedback.

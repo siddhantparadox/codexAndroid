@@ -24,6 +24,10 @@
 - Keep thread operations explicit in UI (`refresh`, `select`, `new`) and make selected thread state visible before running a turn.
 - Centralize protocol-list parsing (such as `thread/list`) into shared utilities used by both bootstrap and incremental refresh actions.
 - Set conservative default RPC timeouts for mobile runtime conditions; use shorter overrides only in tests.
+- Keep UI identity in explicit design tokens and shared primitives; avoid screen-level hard-coded colors/typography.
+- Use a distinct monospace style for command/log content so approvals and transcript output remain scannable under high update frequency.
+- Keep approval decisions high-friction and explicit (approve/decline only), with immediate local feedback and clear state transition messaging.
+- Respect reduced motion in every signature animation path.
 
 ## Product constraints (v1)
 

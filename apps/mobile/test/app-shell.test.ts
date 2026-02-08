@@ -3,12 +3,7 @@ import { APP_SCREENS, getScreenBadgeCount } from "../src/ui/app-shell";
 
 describe("app-shell", () => {
   it("exposes stable screen order", () => {
-    expect(APP_SCREENS.map((item) => item.key)).toEqual([
-      "connect",
-      "turn",
-      "approvals",
-      "transcript"
-    ]);
+    expect(APP_SCREENS.map((item) => item.key)).toEqual(["threads", "approvals", "settings"]);
   });
 
   it("returns badge counts by screen", () => {
@@ -18,9 +13,8 @@ describe("app-shell", () => {
       threadItems: 5
     };
 
-    expect(getScreenBadgeCount("connect", counts)).toBe(0);
-    expect(getScreenBadgeCount("turn", counts)).toBe(5);
+    expect(getScreenBadgeCount("threads", counts)).toBe(5);
     expect(getScreenBadgeCount("approvals", counts)).toBe(3);
-    expect(getScreenBadgeCount("transcript", counts)).toBe(12);
+    expect(getScreenBadgeCount("settings", counts)).toBe(0);
   });
 });

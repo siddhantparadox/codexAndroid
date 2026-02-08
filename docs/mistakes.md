@@ -10,6 +10,10 @@
 - Root cause: SecureStore key constraints were not validated against Android requirements during initial implementation.
 - Remediation: Migrated to `codex-mobile.pairing` and added fallback migration for legacy key reads.
 - Prevention rule: Use only `[A-Za-z0-9._-]` in SecureStore keys and cover key-format assumptions in unit tests.
+- Mistake: Attempted a single oversized rewrite of `apps/mobile/App.tsx` in one patch command.
+- Root cause: Command/payload size limits were ignored during a large UI refactor.
+- Remediation: Split file writes into smaller chunks and kept componentized UI primitives in separate files to reduce patch size.
+- Prevention rule: For large UI rewrites, break changes into modular files first, then integrate incrementally.
 
 When mistakes happen, document:
 - what happened
