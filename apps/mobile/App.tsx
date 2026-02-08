@@ -70,6 +70,10 @@ import {
   buildConnectionHint,
   formatAttemptSummary
 } from "./src/pairing/diagnostics";
+import {
+  createBridgeHeartbeat,
+  type BridgeHeartbeatController
+} from "./src/pairing/heartbeat";
 import { parsePairingQrPayload } from "./src/pairing/qr";
 import {
   clearPersistedPairing,
@@ -109,6 +113,8 @@ type StampState = {
 };
 
 const APPROVAL_TIMEOUT_MS = 120000;
+const HEARTBEAT_DEGRADED_HINT = "Heartbeat delayed. Connection quality is degraded.";
+const HEARTBEAT_RECONNECT_HINT = "Heartbeat lost. Reconnecting to bridge...";
 
 const clip = (text: string, max = 220): string =>
   text.length <= max ? text : `${text.slice(0, max)}...`;
@@ -247,6 +253,7 @@ export const App = (): React.ReactElement => {
   const [connectionEndpoint, setConnectionEndpoint] = React.useState<"lan" | "tailscale" | null>(null);
   const [connectionLatencyMs, setConnectionLatencyMs] = React.useState<number | null>(null);
   const [latencyHistoryMs, setLatencyHistoryMs] = React.useState<number[]>([]);
+  const [heartbeatTimeoutCount, setHeartbeatTimeoutCount] = React.useState(0);
   const [connectionAttemptLog, setConnectionAttemptLog] = React.useState<ConnectionAttempt[]>([]);
   const [lastConnectionHint, setLastConnectionHint] = React.useState<string | null>(null);
   const [bridgeAppServerState, setBridgeAppServerState] = React.useState<
@@ -267,6 +274,7 @@ export const App = (): React.ReactElement => {
   const approvalResolversRef = React.useRef<Map<number, ApprovalResolverEntry>>(new Map());
   const stampTimersRef = React.useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const resumedThreadIdsRef = React.useRef<Set<string>>(new Set());
+  const heartbeatRef = React.useRef<BridgeHeartbeatController | null>(null);
 
   const theme = themeName === "parchment" ? parchmentTheme : carbonTheme;
   const reducedMotion = reducedMotionOverride ?? systemReducedMotion;
@@ -274,6 +282,8 @@ export const App = (): React.ReactElement => {
   const connectionHealth: "connected" | "connecting" | "degraded" | "offline" =
     connected
       ? bridgeAppServerState === "error" || bridgeAppServerState === "stopped"
+        ? "degraded"
+        : heartbeatTimeoutCount > 0
         ? "degraded"
         : "connected"
       : isLoading
@@ -336,6 +346,8 @@ export const App = (): React.ReactElement => {
 
     return () => {
       manualDisconnectRef.current = true;
+      heartbeatRef.current?.stop();
+      heartbeatRef.current = null;
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
       }
@@ -368,6 +380,7 @@ export const App = (): React.ReactElement => {
     setConnectionEndpoint(null);
     setConnectionLatencyMs(null);
     setLatencyHistoryMs([]);
+    setHeartbeatTimeoutCount(0);
     setConnectionAttemptLog([]);
     setLastConnectionHint(null);
     setBridgeAppServerState("unknown");
@@ -385,6 +398,12 @@ export const App = (): React.ReactElement => {
     }
     clearTimeout(reconnectTimerRef.current);
     reconnectTimerRef.current = null;
+  }, []);
+
+  const stopHeartbeat = React.useCallback((): void => {
+    heartbeatRef.current?.stop();
+    heartbeatRef.current = null;
+    setHeartbeatTimeoutCount(0);
   }, []);
 
   const resolveOutstandingApprovals = React.useCallback((decision: ApprovalDecision): void => {
@@ -539,6 +558,7 @@ export const App = (): React.ReactElement => {
     }
 
     clearReconnectTimer();
+    stopHeartbeat();
     isConnectingRef.current = true;
     manualDisconnectRef.current = false;
 
@@ -556,6 +576,7 @@ export const App = (): React.ReactElement => {
     setBootstrap(null);
     setConnectionEndpoint(null);
     setConnectionLatencyMs(null);
+    setHeartbeatTimeoutCount(0);
     setLastConnectionHint(null);
     setBridgeAppServerState("unknown");
     setBridgeAppServerMessage(null);
@@ -570,6 +591,11 @@ export const App = (): React.ReactElement => {
 
       const client = new CodexRpcClient(socket as unknown as RpcSocket, {
         onBridgeMessage: (message) => {
+          if (message.__bridge.type === "pong") {
+            heartbeatRef.current?.handleBridgeMessage(message);
+            return;
+          }
+
           if (message.__bridge.type === "error") {
             setError(`[bridge] ${message.__bridge.message}`);
             return;
@@ -672,12 +698,14 @@ export const App = (): React.ReactElement => {
           }
 
           socketRef.current = null;
+          stopHeartbeat();
           resolveOutstandingApprovals("decline");
           setPendingApprovals([]);
           setBootstrap(null);
           setSession(createInitialSessionState());
           setConnectionEndpoint(null);
           setConnectionLatencyMs(null);
+          setHeartbeatTimeoutCount(0);
           setLastConnectionHint("Connection closed unexpectedly. Computer may be asleep or bridge stopped.");
           setBridgeAppServerState("unknown");
           setBridgeAppServerMessage(null);
@@ -714,11 +742,42 @@ export const App = (): React.ReactElement => {
       setConnectionEndpoint(connection.endpointType);
       setConnectionLatencyMs(latencyMs);
       setLatencyHistoryMs((previous) => [...previous, latencyMs].slice(-8));
+      setHeartbeatTimeoutCount(0);
       setConnectionAttemptLog((previous) => [...previous, ...connection.attempts].slice(-20));
       setLastConnectionHint(null);
       setBridgeAppServerState("running");
       setBridgeAppServerMessage("codex app-server is ready.");
       setStatus(`Connected via ${connection.endpointType}. App server ready.`);
+
+      heartbeatRef.current = createBridgeHeartbeat(
+        (message) => {
+          socket.send(JSON.stringify(message));
+        },
+        {
+          onLatencySample: (nextLatencyMs) => {
+            setConnectionLatencyMs(nextLatencyMs);
+            setLatencyHistoryMs((previous) => [...previous, nextLatencyMs].slice(-8));
+          },
+          onTimeout: (timeoutCount) => {
+            setHeartbeatTimeoutCount(timeoutCount);
+            setLastConnectionHint(HEARTBEAT_DEGRADED_HINT);
+          },
+          onRecovered: () => {
+            setHeartbeatTimeoutCount(0);
+            setLastConnectionHint((previous) =>
+              previous === HEARTBEAT_DEGRADED_HINT || previous === HEARTBEAT_RECONNECT_HINT
+                ? null
+                : previous
+            );
+          },
+          onMaxTimeouts: () => {
+            setLastConnectionHint(HEARTBEAT_RECONNECT_HINT);
+            setStatus("Heartbeat lost. Reconnecting...");
+            socket.close();
+          }
+        }
+      );
+
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
     } catch (caughtError) {
       if (caughtError instanceof ConnectionFallbackError) {
@@ -752,7 +811,8 @@ export const App = (): React.ReactElement => {
     queueApprovalRequest,
     refreshAccountState,
     resolveOutstandingApprovals,
-    scheduleReconnect
+    scheduleReconnect,
+    stopHeartbeat
   ]);
 
   React.useEffect(() => {
@@ -762,6 +822,7 @@ export const App = (): React.ReactElement => {
   const disconnectBridge = React.useCallback((): void => {
     manualDisconnectRef.current = true;
     clearReconnectTimer();
+    stopHeartbeat();
     resolveOutstandingApprovals("decline");
 
     const previousSocket = socketRef.current;
@@ -776,6 +837,7 @@ export const App = (): React.ReactElement => {
     setPendingApprovals([]);
     setConnectionEndpoint(null);
     setConnectionLatencyMs(null);
+    setHeartbeatTimeoutCount(0);
     setLastConnectionHint(null);
     setBridgeAppServerState("unknown");
     setBridgeAppServerMessage(null);
@@ -783,7 +845,7 @@ export const App = (): React.ReactElement => {
     setPendingAuthUrl(null);
     setIsAuthSubmitting(false);
     setStatus("Disconnected");
-  }, [clearReconnectTimer, resolveOutstandingApprovals]);
+  }, [clearReconnectTimer, resolveOutstandingApprovals, stopHeartbeat]);
 
   const forgetPairing = React.useCallback(async (): Promise<void> => {
     disconnectBridge();
@@ -1631,6 +1693,9 @@ export const App = (): React.ReactElement => {
         <Typo theme={theme} variant="micro" tone="paper">Models: {bootstrap?.modelCount ?? 0} | Threads: {bootstrap?.threadCount ?? 0}</Typo>
         <Typo theme={theme} variant="micro" tone="paper">
           Connection health: {connectionHealth}
+        </Typo>
+        <Typo theme={theme} variant="micro" tone="paper">
+          Heartbeat: {heartbeatTimeoutCount > 0 ? `degraded (${heartbeatTimeoutCount})` : "healthy"}
         </Typo>
         <Typo theme={theme} variant="micro" tone="paper">
           Bridge app-server: {bridgeAppServerState}

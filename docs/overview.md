@@ -58,6 +58,10 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
   - connection health state (`connected` / `connecting` / `degraded` / `offline`)
   - latency trend history visible in settings diagnostics
   - bridge app-server status visibility in settings diagnostics
+- Mobile now runs an active bridge heartbeat loop (`__bridge.ping` / `__bridge.pong`) after bootstrap:
+  - continuously refreshes connection latency
+  - marks connection degraded on missed heartbeat windows
+  - forces socket reconnect after repeated missed heartbeats
 - Session transcript now includes:
   - command `cwd` context on command execution items
   - file-change summaries from `changes`

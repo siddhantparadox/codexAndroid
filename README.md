@@ -145,6 +145,11 @@ Run these in order:
    2. Confirm app status shows reconnect attempt with backoff.
    3. Restart bridge (`pnpm dev:bridge`) and confirm app reconnects.
 
+6. Heartbeat degradation and recovery
+   1. Keep app connected, then temporarily block connectivity (for example disable Wi-Fi on phone for ~10-15s).
+   2. Confirm diagnostics shows heartbeat degraded and app attempts reconnect automatically.
+   3. Restore connectivity and confirm health returns to connected with fresh latency samples.
+
 ### Quick troubleshooting
 
 1. Emulator not detected:

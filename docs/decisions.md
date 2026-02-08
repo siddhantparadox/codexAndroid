@@ -119,3 +119,9 @@
 - Decision: Resolve `Self.DNSName` from `tailscale status --json` and use that hostname for the `tailscale` pairing endpoint.
 - Why: MagicDNS hostnames are stable/readable and reduce pairing breakage when Tailnet IP assumptions change.
 - Consequence: Endpoint resolver now attempts MagicDNS discovery with graceful fallback to Tailnet IPv4.
+
+## 2026-02-08 - Use active heartbeat monitoring for post-connect bridge health
+
+- Decision: Start a mobile-side heartbeat loop over bridge control messages (`ping`/`pong`) once app-server bootstrap succeeds.
+- Why: Socket-open state alone does not guarantee a healthy path; half-open/stalled links need deterministic detection.
+- Consequence: Mobile now updates latency from heartbeat samples, marks health degraded on heartbeat misses, and closes the socket to trigger reconnect after repeated misses.

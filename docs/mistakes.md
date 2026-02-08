@@ -19,6 +19,13 @@
 - Remediation: Verified peer dependencies (`react-dom`) before integration and implemented a native diff renderer for mobile.
 - Prevention rule: For each UI dependency, confirm platform compatibility (`react-native` vs `react-dom`) before design implementation starts.
 
+## 2026-02-08
+
+- Mistake: Wrote an initial heartbeat test that assumed no follow-up ping after one interval tick.
+- Root cause: Test setup used `timeoutMs` shorter than `intervalMs`, so the first ping timed out before the next interval as designed.
+- Remediation: Updated the test to use a longer timeout for that scenario and retained a separate timeout-specific test case.
+- Prevention rule: For timer-driven tests, explicitly validate interval/timeout relationships before asserting event counts.
+
 When mistakes happen, document:
 - what happened
 - root cause

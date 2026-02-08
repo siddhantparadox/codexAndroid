@@ -41,6 +41,8 @@
 - For bridge runtimes, emit process-health events for child services (`codex app-server`) and show them in client diagnostics.
 - Before proxying client RPC payloads, verify child process writability/state and return structured bridge errors on failure paths.
 - Normalize discovered hostnames (for example trailing-dot DNS names) before serializing pairing endpoints.
+- Treat bridge heartbeat (`ping`/`pong`) as an ongoing health contract: sample latency, surface degraded state on misses, and trigger controlled reconnect after bounded consecutive timeouts.
+- Keep heartbeat logic isolated in a pure module with tests so connection-policy tuning does not require editing UI components directly.
 
 ## Product constraints (v1)
 

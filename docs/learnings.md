@@ -43,5 +43,7 @@
 - Bridge health should not be inferred from socket state alone; explicit app-server lifecycle events materially improve troubleshooting.
 - Guarding `appServer.stdin` writes with process-state checks prevents silent drops when the app-server has exited.
 - Tailscale MagicDNS values from `tailscale status --json` can include trailing dots; normalize before building ws endpoint URLs.
+- Bridge `ping`/`pong` support is most useful when mobile treats it as a first-class liveness signal (latency telemetry + forced reconnect threshold), not just a debug transport primitive.
+- Heartbeat loops should allow only one in-flight ping token at a time; this keeps timeout and latency accounting deterministic.
 
 Add new entries with date, context, and impact.
