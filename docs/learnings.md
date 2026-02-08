@@ -18,5 +18,11 @@
 - Where protocol docs mention optional extension fields without schema (`acceptSettings`), a validated JSON passthrough is safer than inventing strict client-side enums early.
 - Linking approval cards back to transcript state by `itemId` gives useful execution context without additional server round trips.
 - Including file-change summaries and `item/fileChange/outputDelta` in the reducer materially improves approval clarity.
+- A lightweight local app shell (screen state + metadata helper) is a good midpoint between a debug monolith screen and full router migration.
+- Screen badge counts help surface operational hotspots (pending approvals, transcript growth) without forcing users into one screen.
+- Expo SecureStore key names on Android must avoid `/`; use dot/underscore/hyphen separators and keep a legacy-key migration path where possible.
+- Runtime stability improves when thread context is user-selectable; implicit new-thread creation should be the fallback, not the primary path.
+- Parsing `thread/list` responses in a shared pure module reduces duplication between bootstrap and interactive refresh flows.
+- A 30s default RPC timeout is a safer baseline for mobile + local bridge conditions than 8s.
 
 Add new entries with date, context, and impact.

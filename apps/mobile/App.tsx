@@ -5,6 +5,7 @@ import React from "react";
 import {
   ActivityIndicator,
   Button,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,7 +13,10 @@ import {
   TextInput,
   View
 } from "react-native";
-import { initializeAndBootstrap } from "./src/codex/bootstrap";
+import {
+  initializeAndBootstrap,
+  type BootstrapSnapshot
+} from "./src/codex/bootstrap";
 import {
   COMMAND_APPROVAL_METHOD,
   parseApprovalRequest,
@@ -33,6 +37,7 @@ import {
   createInitialSessionState,
   setActiveThreadId
 } from "./src/codex/session";
+import { parseThreadListResponse } from "./src/codex/thread-list";
 import { getAppTitle } from "./src/config";
 import { connectWithEndpointFallback } from "./src/pairing/connect";
 import { parsePairingQrPayload } from "./src/pairing/qr";
@@ -41,6 +46,11 @@ import {
   loadPersistedPairing,
   persistPairing
 } from "./src/pairing/secure-store";
+import {
+  APP_SCREENS,
+  getScreenBadgeCount,
+  type AppScreenKey
+} from "./src/ui/app-shell";
 
 const asRecord = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -65,19 +75,14 @@ export const App = (): React.ReactElement => {
   const [status, setStatus] = React.useState("Not connected");
   const [error, setError] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
+  const [isRefreshingThreads, setIsRefreshingThreads] = React.useState(false);
   const [prompt, setPrompt] = React.useState("");
+  const [activeScreen, setActiveScreen] = React.useState<AppScreenKey>("connect");
   const [commandAcceptSettingsJson, setCommandAcceptSettingsJson] = React.useState("");
   const [pendingApprovals, setPendingApprovals] = React.useState<PendingApproval[]>(
     []
   );
-  const [bootstrap, setBootstrap] = React.useState<{
-    requiresOpenaiAuth: boolean;
-    authMode: string;
-    modelCount: number;
-    models: Array<{ id: string; displayName: string }>;
-    threadCount: number;
-    threads: Array<{ id: string; preview: string }>;
-  } | null>(null);
+  const [bootstrap, setBootstrap] = React.useState<BootstrapSnapshot | null>(null);
   const [session, setSession] = React.useState(createInitialSessionState);
 
   const socketRef = React.useRef<WebSocket | null>(null);
@@ -100,6 +105,12 @@ export const App = (): React.ReactElement => {
   React.useEffect(() => {
     pairingRef.current = pairing;
   }, [pairing]);
+
+  React.useEffect(() => {
+    if (pendingApprovals.length > 0) {
+      setActiveScreen("approvals");
+    }
+  }, [pendingApprovals.length]);
 
   const transcriptById = React.useMemo(() => {
     const map = new Map<string, { title: string; text: string; status?: string }>();
@@ -415,6 +426,63 @@ export const App = (): React.ReactElement => {
     setStatus("Pairing removed");
   }, [clearReconnectTimer, resolveOutstandingApprovals]);
 
+  const selectExistingThread = React.useCallback((threadId: string): void => {
+    setSession((previous) => setActiveThreadId(previous, threadId));
+    setStatus(`Selected thread ${threadId}. Ready to run next turn.`);
+  }, []);
+
+  const startNewThread = React.useCallback((): void => {
+    setSession((previous) => ({
+      ...previous,
+      activeThreadId: null,
+      activeTurnId: null,
+      turnStatus: "idle"
+    }));
+    setStatus("Next turn will start a new thread.");
+  }, []);
+
+  const refreshThreads = React.useCallback(async (): Promise<void> => {
+    const client = clientRef.current;
+    const currentBootstrap = bootstrap;
+
+    if (!client || !currentBootstrap || isRefreshingThreads) {
+      return;
+    }
+
+    setIsRefreshingThreads(true);
+    setError(null);
+
+    try {
+      const threads = parseThreadListResponse(
+        await client.request("thread/list", {
+          limit: 20,
+          sortKey: "updated_at"
+        })
+      );
+
+      setBootstrap((previous) => {
+        if (!previous) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          threadCount: threads.length,
+          threads
+        };
+      });
+
+      setStatus(`Loaded ${threads.length} thread${threads.length === 1 ? "" : "s"}.`);
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error ? caughtError.message : "Failed to refresh threads";
+      setError(message);
+      setStatus("Failed to refresh threads");
+    } finally {
+      setIsRefreshingThreads(false);
+    }
+  }, [bootstrap, isRefreshingThreads]);
+
   const runTurn = React.useCallback(async (): Promise<void> => {
     const client = clientRef.current;
     const promptText = prompt.trim();
@@ -526,295 +594,386 @@ export const App = (): React.ReactElement => {
         {getAppTitle()}
       </Text>
       <Text selectable style={styles.subtitle}>
-        Pair phone to bridge and connect (LAN first, Tailscale fallback).
+        Pair, connect, run turns, and manage approvals.
       </Text>
 
-      <View style={styles.card}>
-        <Text selectable style={styles.sectionTitle}>
-          Pairing
-        </Text>
-        {pairing ? (
-          <View style={styles.pairingInfo}>
-            <Text selectable style={styles.label}>
-              Name: {pairing.name}
-            </Text>
-            <Text selectable style={styles.label}>
-              LAN: {pairing.endpoints.lan ?? "n/a"}
-            </Text>
-            <Text selectable style={styles.label}>
-              Tailscale: {pairing.endpoints.tailscale ?? "n/a"}
-            </Text>
-          </View>
-        ) : (
-          <Text selectable style={styles.muted}>
-            No paired computer yet.
-          </Text>
-        )}
-
-        <View style={styles.buttonRow}>
-          <Button
-            title={isScannerVisible ? "Hide QR Scanner" : "Scan QR"}
-            onPress={() => {
-              setIsScannerVisible((value) => !value);
-              setError(null);
-            }}
-          />
-          <Button
-            title="Forget Pairing"
-            onPress={() => void forgetPairing()}
-            disabled={!pairing}
-          />
-        </View>
-
-        {isScannerVisible ? (
-          <View style={styles.scannerBox}>
-            {!permission ? (
-              <ActivityIndicator />
-            ) : permission.granted ? (
-              <CameraView
-                style={StyleSheet.absoluteFillObject}
-                barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-                onBarcodeScanned={(event) => {
-                  void handleQrCode(event);
-                }}
-              />
-            ) : (
-              <Button
-                title="Grant Camera Permission"
-                onPress={() => {
-                  void requestPermission();
-                }}
-              />
-            )}
-          </View>
-        ) : null}
-
-        <TextInput
-          value={manualPayload}
-          onChangeText={setManualPayload}
-          placeholder="Paste pairing JSON here"
-          autoCapitalize="none"
-          autoCorrect={false}
-          multiline
-          style={styles.input}
-        />
-        <Button
-          title="Apply Pairing JSON"
-          onPress={() => void submitManualPayload()}
-          disabled={!manualPayload.trim()}
-        />
-      </View>
-
-      <View style={styles.card}>
-        <Text selectable style={styles.sectionTitle}>
-          Connection
-        </Text>
-        <Text selectable style={styles.label}>
-          Status: {status}
+      <View style={styles.statusCard}>
+        <Text selectable style={styles.statusTitle}>
+          {status}
         </Text>
         {error ? (
           <Text selectable style={styles.error}>
             {error}
           </Text>
         ) : null}
-        <Button
-          title={isLoading ? "Connecting..." : "Connect to Bridge"}
-          onPress={() => void connectToBridge()}
-          disabled={!pairing || isLoading}
-        />
       </View>
 
-      <View style={styles.card}>
-        <Text selectable style={styles.sectionTitle}>
-          App Server Snapshot
-        </Text>
-        {!bootstrap ? (
-          <Text selectable style={styles.muted}>
-            No bootstrap data yet.
-          </Text>
-        ) : (
-          <View style={styles.snapshotInfo}>
-            <Text selectable style={styles.label}>
-              Auth mode: {bootstrap.authMode}
-            </Text>
-            <Text selectable style={styles.label}>
-              Requires OpenAI auth: {String(bootstrap.requiresOpenaiAuth)}
-            </Text>
-            <Text selectable style={styles.label}>
-              Models loaded: {bootstrap.modelCount}
-            </Text>
-            <Text selectable style={styles.label}>
-              Threads loaded: {bootstrap.threadCount}
-            </Text>
+      <View style={styles.navRow}>
+        {APP_SCREENS.map((screen) => {
+          const isActive = activeScreen === screen.key;
+          const badgeCount = getScreenBadgeCount(screen.key, {
+            pendingApprovals: pendingApprovals.length,
+            transcriptItems: session.transcript.length,
+            threadItems: bootstrap?.threadCount ?? 0
+          });
 
-            {bootstrap.models.slice(0, 5).map((model) => (
-              <Text key={model.id} selectable style={styles.muted}>
-                Model: {model.displayName}
+          return (
+            <Pressable
+              key={screen.key}
+              style={[styles.navPill, isActive ? styles.navPillActive : null]}
+              onPress={() => {
+                setActiveScreen(screen.key);
+              }}
+            >
+              <Text
+                selectable
+                style={[styles.navPillText, isActive ? styles.navPillTextActive : null]}
+              >
+                {screen.title}
               </Text>
-            ))}
-            {bootstrap.threads.slice(0, 5).map((thread) => (
-              <Text key={thread.id} selectable style={styles.muted}>
-                Thread: {thread.preview}
-              </Text>
-            ))}
-          </View>
-        )}
-      </View>
-
-      <View style={styles.card}>
-        <Text selectable style={styles.sectionTitle}>
-          Turn Composer
-        </Text>
-        <Text selectable style={styles.label}>
-          Active thread: {session.activeThreadId ?? "none"}
-        </Text>
-        <Text selectable style={styles.label}>
-          Turn status: {session.turnStatus}
-        </Text>
-        <TextInput
-          value={prompt}
-          onChangeText={setPrompt}
-          placeholder="Ask Codex to make a change..."
-          autoCapitalize="sentences"
-          multiline
-          style={styles.input}
-        />
-        <Button
-          title="Run Turn"
-          onPress={() => void runTurn()}
-          disabled={!clientRef.current || isLoading || !prompt.trim()}
-        />
-      </View>
-
-      <View style={styles.card}>
-        <Text selectable style={styles.sectionTitle}>
-          Pending Approvals
-        </Text>
-        {pendingApprovals.length === 0 ? (
-          <Text selectable style={styles.muted}>
-            No pending approvals.
-          </Text>
-        ) : (
-          <View style={styles.snapshotInfo}>
-            {pendingApprovals.map((approval) => {
-              const methodLabel =
-                approval.method === COMMAND_APPROVAL_METHOD
-                  ? "Command execution"
-                  : "File change";
-              const subtitle =
-                approval.command ?? approval.parsedCmdText ?? approval.reason ?? "";
-              const transcriptItem = transcriptById.get(approval.itemId);
-              const transcriptSummary = transcriptItem?.text
-                ? transcriptItem.text.slice(0, 500)
-                : "";
-
-              return (
-                <View key={approval.requestId} style={styles.approvalRow}>
-                  <Text selectable style={styles.transcriptTitle}>
-                    {methodLabel}
-                  </Text>
-                  <Text selectable style={styles.muted}>
-                    Item: {approval.itemId}
-                  </Text>
-                  <Text selectable style={styles.muted}>
-                    Thread: {approval.threadId}
-                  </Text>
-                  <Text selectable style={styles.muted}>
-                    Turn: {approval.turnId}
-                  </Text>
-                  {approval.cwd ? (
-                    <Text selectable style={styles.muted}>
-                      CWD: {approval.cwd}
-                    </Text>
-                  ) : null}
-                  {approval.risk ? (
-                    <Text selectable style={styles.approvalRisk}>
-                      Risk: {approval.risk}
-                    </Text>
-                  ) : null}
-                  {subtitle ? (
-                    <Text selectable style={styles.transcriptText}>
-                      {subtitle}
-                    </Text>
-                  ) : null}
-                  {transcriptItem ? (
-                    <View style={styles.approvalContextBox}>
-                      <Text selectable style={styles.muted}>
-                        Latest item state: {transcriptItem.title}
-                        {transcriptItem.status ? ` (${transcriptItem.status})` : ""}
-                      </Text>
-                      <Text selectable style={styles.transcriptText}>
-                        {transcriptSummary || "(no details yet)"}
-                      </Text>
-                    </View>
-                  ) : null}
-                  {approval.method === COMMAND_APPROVAL_METHOD ? (
-                    <View style={styles.snapshotInfo}>
-                      <Text selectable style={styles.muted}>
-                        Optional `acceptSettings` JSON:
-                      </Text>
-                      <TextInput
-                        value={commandAcceptSettingsJson}
-                        onChangeText={setCommandAcceptSettingsJson}
-                        placeholder='{"policy":"alwaysAllow"}'
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        multiline
-                        style={styles.approvalSettingsInput}
-                      />
-                    </View>
-                  ) : null}
-                  <View style={styles.buttonRow}>
-                    <Button
-                      title="Accept"
-                      onPress={() => {
-                        respondToApproval(approval.requestId, approval.method, "accept");
-                      }}
-                    />
-                    <Button
-                      title="Decline"
-                      onPress={() => {
-                        respondToApproval(approval.requestId, approval.method, "decline");
-                      }}
-                    />
-                  </View>
-                </View>
-              );
-            })}
-          </View>
-        )}
-      </View>
-
-      <View style={styles.card}>
-        <Text selectable style={styles.sectionTitle}>
-          Transcript
-        </Text>
-        {session.transcript.length === 0 ? (
-          <Text selectable style={styles.muted}>
-            No transcript yet.
-          </Text>
-        ) : (
-          <View style={styles.snapshotInfo}>
-            {session.transcript.map((entry) => (
-              <View key={entry.id} style={styles.transcriptRow}>
-                <Text
-                  selectable
-                  style={[
-                    styles.transcriptTitle,
-                    transcriptTypeStyles[entry.type] ?? transcriptTypeStyles.system
-                  ]}
-                >
-                  {entry.title}
-                  {entry.status ? ` (${entry.status})` : ""}
+              {badgeCount > 0 ? (
+                <Text selectable style={styles.navPillBadge}>
+                  {badgeCount}
                 </Text>
-                <Text selectable style={styles.transcriptText}>
-                  {entry.text || "(no content)"}
+              ) : null}
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {activeScreen === "connect" ? (
+        <>
+          <View style={styles.card}>
+            <Text selectable style={styles.sectionTitle}>
+              Pairing
+            </Text>
+            {pairing ? (
+              <View style={styles.pairingInfo}>
+                <Text selectable style={styles.label}>
+                  Name: {pairing.name}
+                </Text>
+                <Text selectable style={styles.label}>
+                  LAN: {pairing.endpoints.lan ?? "n/a"}
+                </Text>
+                <Text selectable style={styles.label}>
+                  Tailscale: {pairing.endpoints.tailscale ?? "n/a"}
                 </Text>
               </View>
-            ))}
+            ) : (
+              <Text selectable style={styles.muted}>
+                No paired computer yet.
+              </Text>
+            )}
+
+            <View style={styles.buttonRow}>
+              <Button
+                title={isScannerVisible ? "Hide QR Scanner" : "Scan QR"}
+                onPress={() => {
+                  setIsScannerVisible((value) => !value);
+                  setError(null);
+                }}
+              />
+              <Button
+                title="Forget Pairing"
+                onPress={() => void forgetPairing()}
+                disabled={!pairing}
+              />
+            </View>
+
+            {isScannerVisible ? (
+              <View style={styles.scannerBox}>
+                {!permission ? (
+                  <ActivityIndicator />
+                ) : permission.granted ? (
+                  <CameraView
+                    style={StyleSheet.absoluteFillObject}
+                    barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+                    onBarcodeScanned={(event) => {
+                      void handleQrCode(event);
+                    }}
+                  />
+                ) : (
+                  <Button
+                    title="Grant Camera Permission"
+                    onPress={() => {
+                      void requestPermission();
+                    }}
+                  />
+                )}
+              </View>
+            ) : null}
+
+            <TextInput
+              value={manualPayload}
+              onChangeText={setManualPayload}
+              placeholder="Paste pairing JSON here"
+              autoCapitalize="none"
+              autoCorrect={false}
+              multiline
+              style={styles.input}
+            />
+            <Button
+              title="Apply Pairing JSON"
+              onPress={() => void submitManualPayload()}
+              disabled={!manualPayload.trim()}
+            />
           </View>
-        )}
-      </View>
+
+          <View style={styles.card}>
+            <Text selectable style={styles.sectionTitle}>
+              Connection
+            </Text>
+            <Button
+              title={isLoading ? "Connecting..." : "Connect to Bridge"}
+              onPress={() => void connectToBridge()}
+              disabled={!pairing || isLoading}
+            />
+          </View>
+
+          <View style={styles.card}>
+            <Text selectable style={styles.sectionTitle}>
+              Snapshot
+            </Text>
+            {!bootstrap ? (
+              <Text selectable style={styles.muted}>
+                No bootstrap data yet.
+              </Text>
+            ) : (
+              <View style={styles.snapshotInfo}>
+                <Text selectable style={styles.label}>
+                  Auth mode: {bootstrap.authMode}
+                </Text>
+                <Text selectable style={styles.label}>
+                  Requires OpenAI auth: {String(bootstrap.requiresOpenaiAuth)}
+                </Text>
+                <Text selectable style={styles.label}>
+                  Models loaded: {bootstrap.modelCount}
+                </Text>
+                <Text selectable style={styles.label}>
+                  Threads loaded: {bootstrap.threadCount}
+                </Text>
+              </View>
+            )}
+          </View>
+        </>
+      ) : null}
+
+      {activeScreen === "turn" ? (
+        <>
+          <View style={styles.card}>
+            <Text selectable style={styles.sectionTitle}>
+              Turn Composer
+            </Text>
+            <Text selectable style={styles.label}>
+              Active thread: {session.activeThreadId ?? "none"}
+            </Text>
+            <Text selectable style={styles.label}>
+              Turn status: {session.turnStatus}
+            </Text>
+            <TextInput
+              value={prompt}
+              onChangeText={setPrompt}
+              placeholder="Ask Codex to make a change..."
+              autoCapitalize="sentences"
+              multiline
+              style={styles.input}
+            />
+            <Button
+              title="Run Turn"
+              onPress={() => void runTurn()}
+              disabled={!clientRef.current || isLoading || !prompt.trim()}
+            />
+            <View style={styles.buttonRow}>
+              <Button
+                title={isRefreshingThreads ? "Refreshing..." : "Refresh Threads"}
+                onPress={() => void refreshThreads()}
+                disabled={!clientRef.current || isRefreshingThreads}
+              />
+              <Button
+                title="Start New Thread"
+                onPress={() => {
+                  startNewThread();
+                }}
+                disabled={!clientRef.current}
+              />
+            </View>
+          </View>
+
+          <View style={styles.card}>
+            <Text selectable style={styles.sectionTitle}>
+              Threads
+            </Text>
+            {!bootstrap || bootstrap.threads.length === 0 ? (
+              <Text selectable style={styles.muted}>
+                No threads loaded yet.
+              </Text>
+            ) : (
+              <View style={styles.snapshotInfo}>
+                {bootstrap.threads.slice(0, 8).map((thread) => {
+                  const isActiveThread = session.activeThreadId === thread.id;
+
+                  return (
+                    <View key={thread.id} style={styles.threadRow}>
+                      <View style={styles.threadTextWrap}>
+                        <Text
+                          selectable
+                          style={[styles.transcriptTitle, isActiveThread ? styles.threadActive : null]}
+                        >
+                          {thread.id}
+                        </Text>
+                        <Text selectable style={styles.muted}>
+                          {thread.preview}
+                        </Text>
+                      </View>
+                      <Button
+                        title={isActiveThread ? "Active" : "Use"}
+                        onPress={() => {
+                          selectExistingThread(thread.id);
+                        }}
+                        disabled={isActiveThread}
+                      />
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        </>
+      ) : null}
+
+      {activeScreen === "approvals" ? (
+        <View style={styles.card}>
+          <Text selectable style={styles.sectionTitle}>
+            Pending Approvals
+          </Text>
+          {pendingApprovals.length === 0 ? (
+            <Text selectable style={styles.muted}>
+              No pending approvals.
+            </Text>
+          ) : (
+            <View style={styles.snapshotInfo}>
+              {pendingApprovals.map((approval) => {
+                const methodLabel =
+                  approval.method === COMMAND_APPROVAL_METHOD
+                    ? "Command execution"
+                    : "File change";
+                const subtitle =
+                  approval.command ?? approval.parsedCmdText ?? approval.reason ?? "";
+                const transcriptItem = transcriptById.get(approval.itemId);
+                const transcriptSummary = transcriptItem?.text
+                  ? transcriptItem.text.slice(0, 500)
+                  : "";
+
+                return (
+                  <View key={approval.requestId} style={styles.approvalRow}>
+                    <Text selectable style={styles.transcriptTitle}>
+                      {methodLabel}
+                    </Text>
+                    <Text selectable style={styles.muted}>
+                      Item: {approval.itemId}
+                    </Text>
+                    <Text selectable style={styles.muted}>
+                      Thread: {approval.threadId}
+                    </Text>
+                    <Text selectable style={styles.muted}>
+                      Turn: {approval.turnId}
+                    </Text>
+                    {approval.cwd ? (
+                      <Text selectable style={styles.muted}>
+                        CWD: {approval.cwd}
+                      </Text>
+                    ) : null}
+                    {approval.risk ? (
+                      <Text selectable style={styles.approvalRisk}>
+                        Risk: {approval.risk}
+                      </Text>
+                    ) : null}
+                    {subtitle ? (
+                      <Text selectable style={styles.transcriptText}>
+                        {subtitle}
+                      </Text>
+                    ) : null}
+                    {transcriptItem ? (
+                      <View style={styles.approvalContextBox}>
+                        <Text selectable style={styles.muted}>
+                          Latest item state: {transcriptItem.title}
+                          {transcriptItem.status ? ` (${transcriptItem.status})` : ""}
+                        </Text>
+                        <Text selectable style={styles.transcriptText}>
+                          {transcriptSummary || "(no details yet)"}
+                        </Text>
+                      </View>
+                    ) : null}
+                    {approval.method === COMMAND_APPROVAL_METHOD ? (
+                      <View style={styles.snapshotInfo}>
+                        <Text selectable style={styles.muted}>
+                          Optional `acceptSettings` JSON:
+                        </Text>
+                        <TextInput
+                          value={commandAcceptSettingsJson}
+                          onChangeText={setCommandAcceptSettingsJson}
+                          placeholder='{"policy":"alwaysAllow"}'
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          multiline
+                          style={styles.approvalSettingsInput}
+                        />
+                      </View>
+                    ) : null}
+                    <View style={styles.buttonRow}>
+                      <Button
+                        title="Accept"
+                        onPress={() => {
+                          respondToApproval(approval.requestId, approval.method, "accept");
+                        }}
+                      />
+                      <Button
+                        title="Decline"
+                        onPress={() => {
+                          respondToApproval(approval.requestId, approval.method, "decline");
+                        }}
+                      />
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </View>
+      ) : null}
+
+      {activeScreen === "transcript" ? (
+        <View style={styles.card}>
+          <Text selectable style={styles.sectionTitle}>
+            Transcript
+          </Text>
+          {session.transcript.length === 0 ? (
+            <Text selectable style={styles.muted}>
+              No transcript yet.
+            </Text>
+          ) : (
+            <View style={styles.snapshotInfo}>
+              {session.transcript.map((entry) => (
+                <View key={entry.id} style={styles.transcriptRow}>
+                  <Text
+                    selectable
+                    style={[
+                      styles.transcriptTitle,
+                      transcriptTypeStyles[entry.type] ?? transcriptTypeStyles.system
+                    ]}
+                  >
+                    {entry.title}
+                    {entry.status ? ` (${entry.status})` : ""}
+                  </Text>
+                  <Text selectable style={styles.transcriptText}>
+                    {entry.text || "(no content)"}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      ) : null}
 
       <StatusBar style="dark" />
     </ScrollView>
@@ -836,6 +995,56 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 14,
     color: "#4b5563"
+  },
+  statusCard: {
+    backgroundColor: "#111827",
+    borderRadius: 14,
+    padding: 12,
+    gap: 6
+  },
+  statusTitle: {
+    color: "#f9fafb",
+    fontSize: 14,
+    fontWeight: "600"
+  },
+  navRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  navPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "#ffffff"
+  },
+  navPillActive: {
+    borderColor: "#1d4ed8",
+    backgroundColor: "#eff6ff"
+  },
+  navPillText: {
+    fontSize: 13,
+    color: "#374151",
+    fontWeight: "600"
+  },
+  navPillTextActive: {
+    color: "#1d4ed8"
+  },
+  navPillBadge: {
+    minWidth: 20,
+    textAlign: "center",
+    fontSize: 12,
+    color: "#1d4ed8",
+    backgroundColor: "#dbeafe",
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    fontVariant: ["tabular-nums"]
   },
   card: {
     backgroundColor: "#ffffff",
@@ -893,6 +1102,24 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 10,
     gap: 6
+  },
+  threadRow: {
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 10,
+    padding: 10,
+    gap: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between"
+  },
+  threadTextWrap: {
+    flex: 1,
+    gap: 4,
+    paddingRight: 10
+  },
+  threadActive: {
+    color: "#1d4ed8"
   },
   approvalRow: {
     borderWidth: 1,

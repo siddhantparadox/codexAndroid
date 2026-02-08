@@ -1,7 +1,8 @@
 import type { PairingPayload } from "@codex-mobile/protocol";
 import { parsePairingPayload } from "@codex-mobile/protocol";
 
-const PAIRING_KEY = "codex-mobile/pairing";
+const PAIRING_KEY = "codex-mobile.pairing";
+const LEGACY_PAIRING_KEYS = ["codex-mobile/pairing"];
 
 export type PairingStore = {
   getItemAsync: (key: string) => Promise<string | null>;
@@ -19,17 +20,29 @@ export const persistPairingToStore = async (
 export const loadPairingFromStore = async (
   store: PairingStore
 ): Promise<PairingPayload | null> => {
-  const raw = await store.getItemAsync(PAIRING_KEY);
-  if (!raw) {
-    return null;
+  const keysToCheck = [PAIRING_KEY, ...LEGACY_PAIRING_KEYS];
+
+  for (const key of keysToCheck) {
+    const raw = await store.getItemAsync(key);
+    if (!raw) {
+      continue;
+    }
+
+    try {
+      const parsed = parsePairingPayload(JSON.parse(raw));
+
+      if (key !== PAIRING_KEY) {
+        await store.setItemAsync(PAIRING_KEY, JSON.stringify(parsed));
+        await store.deleteItemAsync(key);
+      }
+
+      return parsed;
+    } catch {
+      await store.deleteItemAsync(key);
+    }
   }
 
-  try {
-    return parsePairingPayload(JSON.parse(raw));
-  } catch {
-    await store.deleteItemAsync(PAIRING_KEY);
-    return null;
-  }
+  return null;
 };
 
 export const clearPairingFromStore = async (store: PairingStore): Promise<void> => {

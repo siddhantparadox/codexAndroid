@@ -47,3 +47,21 @@
 - Decision: Support optional `acceptSettings` for command approvals via a raw JSON object input that is validated client-side and forwarded unchanged.
 - Why: Current app-server docs confirm `acceptSettings` exists but do not define a stable field schema; passthrough avoids hard-coding speculative keys.
 - Consequence: UI exposes an advanced JSON field for command approvals only, and rejects invalid/non-object JSON before responding.
+
+## 2026-02-07 - Introduce a multi-screen app shell before final visual polish
+
+- Decision: Split the single long-scroll debug screen into four primary screens (`Connect`, `Turn`, `Approvals`, `Transcript`) under one in-app shell.
+- Why: Functional separation makes day-to-day testing and future feature work (threads/auth/settings) easier before committing to final design language.
+- Consequence: Existing behaviors are preserved but now surfaced in focused screens with per-screen badge counts.
+
+## 2026-02-07 - Prefer explicit thread selection UX over implicit thread creation
+
+- Decision: Add thread refresh/list/select controls to the `Turn` screen and keep explicit `Start New Thread` behavior.
+- Why: Users need predictable control of conversation context and should not be forced into automatic thread creation every turn.
+- Consequence: `turn/start` now commonly uses an existing selected thread id, with `thread/start` only when the user intentionally begins a new thread.
+
+## 2026-02-07 - Increase JSON-RPC default request timeout to 30 seconds
+
+- Decision: Raise mobile JSON-RPC default timeout from 8s to 30s.
+- Why: On slower devices or bridge/app-server warm states, 8s can cause false-negative timeout errors for otherwise successful requests.
+- Consequence: Fewer transient timeout failures; request-level overrides remain available for tests/specific flows.

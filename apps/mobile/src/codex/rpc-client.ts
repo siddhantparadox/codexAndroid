@@ -40,7 +40,7 @@ type CodexRpcClientOptions = {
   onClose?: () => void;
 };
 
-const DEFAULT_REQUEST_TIMEOUT_MS = 8000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 
 const asRecord = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {

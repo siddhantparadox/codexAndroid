@@ -1,13 +1,9 @@
 import { CodexRpcClient } from "./rpc-client";
+import { parseThreadListResponse, type ThreadSummary } from "./thread-list";
 
-type ModelSummary = {
+export type ModelSummary = {
   id: string;
   displayName: string;
-};
-
-type ThreadSummary = {
-  id: string;
-  preview: string;
 };
 
 export type BootstrapSnapshot = {
@@ -74,17 +70,7 @@ export const initializeAndBootstrap = async (
       sortKey: "updated_at"
     })
   );
-  const threadData = asArray(threadResult?.data)
-    .map((item) => asRecord(item))
-    .filter((item): item is Record<string, unknown> => Boolean(item))
-    .map((thread) => {
-      const id = typeof thread.id === "string" ? thread.id : "unknown-thread";
-      const preview =
-        typeof thread.preview === "string" && thread.preview.trim()
-          ? thread.preview
-          : "(empty thread)";
-      return { id, preview };
-    });
+  const threadData = parseThreadListResponse(threadResult);
 
   return {
     requiresOpenaiAuth,

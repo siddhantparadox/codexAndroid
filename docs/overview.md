@@ -46,4 +46,14 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
   - command `cwd` context on command execution items
   - file-change summaries from `changes`
   - `item/fileChange/outputDelta` aggregation
+- Mobile UI now uses a simple app shell with section navigation:
+  - `Connect` screen for pairing/connection/bootstrap
+  - `Turn` screen for composer and thread preview
+  - `Approvals` screen for pending approvals
+  - `Transcript` screen for stream history
+- Turn screen now includes thread controls:
+  - refresh threads (`thread/list`)
+  - select active existing thread
+  - start next turn in a new thread
+- RPC request timeout default increased to 30s to reduce transient timeout failures in slower runtime conditions
 - Docs folder now tracks decisions, learnings, mistakes, and best practices

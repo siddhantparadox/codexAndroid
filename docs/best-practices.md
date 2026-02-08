@@ -19,6 +19,11 @@
 - For optional protocol extensions with unspecified schema, validate input shape (JSON object) and forward transparently instead of hard-coding assumptions.
 - In approval UIs, always display thread/turn/item identifiers and the latest transcript snapshot keyed by `itemId` to reduce blind approvals.
 - Summarize proposed file changes directly from item payloads before approval decisions.
+- Keep app shell metadata (screen list, badge rules) in a pure module with tests, even if navigation is local state for now.
+- Separate user workflows into focused screens early to reduce regression risk while iterating on protocol-heavy features.
+- Keep thread operations explicit in UI (`refresh`, `select`, `new`) and make selected thread state visible before running a turn.
+- Centralize protocol-list parsing (such as `thread/list`) into shared utilities used by both bootstrap and incremental refresh actions.
+- Set conservative default RPC timeouts for mobile runtime conditions; use shorter overrides only in tests.
 
 ## Product constraints (v1)
 

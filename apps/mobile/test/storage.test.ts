@@ -41,18 +41,39 @@ describe("pairing storage", () => {
 
   it("clears invalid payloads", async () => {
     const store = new InMemoryStore();
-    await store.setItemAsync("codex-mobile/pairing", "{\"v\":2}");
+    await store.setItemAsync("codex-mobile.pairing", "{\"v\":2}");
 
     const loaded = await loadPairingFromStore(store);
     expect(loaded).toBeNull();
-    expect(await store.getItemAsync("codex-mobile/pairing")).toBeNull();
+    expect(await store.getItemAsync("codex-mobile.pairing")).toBeNull();
   });
 
   it("removes saved pairing", async () => {
     const store = new InMemoryStore();
-    await store.setItemAsync("codex-mobile/pairing", "{}");
+    await store.setItemAsync("codex-mobile.pairing", "{}");
     await clearPairingFromStore(store);
 
+    expect(await store.getItemAsync("codex-mobile.pairing")).toBeNull();
+  });
+
+  it("migrates legacy key into the new secure key format", async () => {
+    const store = new InMemoryStore();
+    await store.setItemAsync(
+      "codex-mobile/pairing",
+      JSON.stringify({
+        v: 1,
+        name: "Legacy Computer",
+        token: "12345678901234567890123456789012",
+        endpoints: {
+          lan: "ws://192.168.1.50:8787/ws"
+        },
+        cwdHint: "/repo"
+      })
+    );
+
+    const loaded = await loadPairingFromStore(store);
+    expect(loaded?.name).toBe("Legacy Computer");
+    expect(await store.getItemAsync("codex-mobile.pairing")).not.toBeNull();
     expect(await store.getItemAsync("codex-mobile/pairing")).toBeNull();
   });
 });
