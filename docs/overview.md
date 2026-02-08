@@ -54,6 +54,9 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
   - command `cwd` context on command execution items
   - file-change summaries from `changes`
   - `item/fileChange/outputDelta` aggregation
+  - `turn/plan/updated` projection into plan cards
+  - `turn/diff/updated` projection into a unified diff card experience
+  - `item/plan/delta` and `item/reasoning/summaryTextDelta` streaming text support
 - Mobile UI now uses an editorial "paper on carbon" shell with three primary tabs:
   - `Threads`: machine controls, composer, index-card thread archive, transcript timeline
   - `Approvals`: dedicated approval desk with explicit approve/decline actions
@@ -61,7 +64,7 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
 - Mobile design system added:
   - Carbon/Parchment theme tokens
   - Fraunces + Commissioner + Azeret Mono font system
-  - reusable primitives (`AppBackground`, `Typo`, `IndexCard`, `Chip`, `Stamp`)
+  - reusable primitives (`AppBackground`, `Typo`, `IndexCard`, `Chip`, `Stamp`, `PierreDiffCard`)
 - Approval UX now includes a visible stamp animation moment on approve/decline decisions
 - RPC request timeout default increased to 30s to reduce transient timeout failures in slower runtime conditions
 - Interrupt action now calls `turn/interrupt` for active turn/thread instead of disconnecting the bridge socket

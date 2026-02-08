@@ -16,6 +16,7 @@ import {
 import { AppBackground } from "./src/components/AppBackground";
 import { Chip } from "./src/components/Chip";
 import { IndexCard } from "./src/components/IndexCard";
+import { PierreDiffCard } from "./src/components/PierreDiffCard";
 import { Stamp } from "./src/components/Stamp";
 import { Typo } from "./src/components/Typo";
 import {
@@ -108,6 +109,10 @@ const transcriptAccentByType: Record<
   agentMessage: "cyan",
   commandExecution: "amber",
   fileChange: "danger",
+  plan: "cyan",
+  diff: "danger",
+  toolCall: "amber",
+  reasoning: "cyan",
   system: "cyan"
 };
 
@@ -892,6 +897,79 @@ export const App = (): React.ReactElement => {
 
   const activeApproval = pendingApprovals[0] ?? null;
 
+  const renderTranscriptEntry = (entry: TranscriptItem): React.ReactElement => {
+    if (entry.type === "diff") {
+      return (
+        <PierreDiffCard
+          key={entry.id}
+          theme={theme}
+          title={entry.title}
+          status={entry.status}
+          diff={entry.text}
+        />
+      );
+    }
+
+    if (entry.type === "plan") {
+      const lines = entry.text
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+
+      return (
+        <IndexCard key={entry.id} theme={theme} accent={transcriptAccentByType[entry.type]}>
+          <Typo theme={theme} variant="micro" tone="paper" weight="semibold">
+            {entry.title}
+            {entry.status ? ` (${entry.status})` : ""}
+          </Typo>
+          {lines.map((line, index) => (
+            <View
+              key={`${entry.id}-${index}-${line}`}
+              style={[styles.planLine, { borderColor: theme.cardHairline, backgroundColor: theme.cardAlt }]}
+            >
+              <Typo theme={theme} variant="small" tone="paper">
+                {line}
+              </Typo>
+            </View>
+          ))}
+        </IndexCard>
+      );
+    }
+
+    if (entry.type === "toolCall") {
+      return (
+        <IndexCard key={entry.id} theme={theme} accent={transcriptAccentByType[entry.type]}>
+          <Typo theme={theme} variant="micro" tone="paper" weight="semibold">
+            {entry.title}
+            {entry.status ? ` (${entry.status})` : ""}
+          </Typo>
+          <View style={[styles.toolRow, { borderColor: theme.cardHairline, backgroundColor: theme.cardAlt }]}>
+            <Typo theme={theme} variant="mono" tone="paper" style={styles.monoRow}>
+              {entry.text || "(tool call in progress)"}
+            </Typo>
+          </View>
+        </IndexCard>
+      );
+    }
+
+    return (
+      <IndexCard key={entry.id} theme={theme} accent={transcriptAccentByType[entry.type]}>
+        <Typo theme={theme} variant="micro" tone="paper" weight="semibold">
+          {entry.title}
+          {entry.status ? ` (${entry.status})` : ""}
+        </Typo>
+        <Typo
+          theme={theme}
+          variant={entry.type === "commandExecution" ? "mono" : "small"}
+          tone="paper"
+          style={entry.type === "commandExecution" ? styles.monoRow : undefined}
+        >
+          {entry.text || "(no content)"}
+        </Typo>
+      </IndexCard>
+    );
+  };
+
   const renderThreads = (): React.ReactElement => (
     <View style={styles.screenStack}>
       <IndexCard theme={theme} accent={connected ? "acid" : pairing ? "amber" : "danger"}>
@@ -1007,14 +1085,9 @@ export const App = (): React.ReactElement => {
         </View>
       ) : (
         session.transcript
-          .filter((entry) => (showToolCalls ? true : entry.type !== "commandExecution"))
+          .filter((entry) => (showToolCalls ? true : entry.type !== "toolCall"))
           .slice(-20)
-          .map((entry) => (
-          <IndexCard key={entry.id} theme={theme} accent={transcriptAccentByType[entry.type]}>
-            <Typo theme={theme} variant="micro" tone="paper" weight="semibold">{entry.title}{entry.status ? ` (${entry.status})` : ""}</Typo>
-            <Typo theme={theme} variant={entry.type === "commandExecution" ? "mono" : "small"} tone="paper" style={entry.type === "commandExecution" ? styles.monoRow : undefined}>{entry.text || "(no content)"}</Typo>
-          </IndexCard>
-          ))
+          .map((entry) => renderTranscriptEntry(entry))
       )}
     </View>
   );
@@ -1373,6 +1446,18 @@ const styles = StyleSheet.create({
   },
   monoRow: {
     fontVariant: ["tabular-nums"]
+  },
+  planLine: {
+    borderWidth: 1,
+    borderRadius: radii.cardInner,
+    paddingHorizontal: space.x3,
+    paddingVertical: space.x2
+  },
+  toolRow: {
+    borderWidth: 1,
+    borderRadius: radii.cardInner,
+    paddingHorizontal: space.x3,
+    paddingVertical: space.x2
   },
   bottomTabs: {
     position: "absolute",

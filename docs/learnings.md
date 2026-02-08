@@ -33,5 +33,8 @@
 - A real interrupt action must call `turn/interrupt`; using disconnect as a proxy is behaviorally incorrect and loses session continuity.
 - ChatGPT login UX is materially smoother when the bridge auto-opens `authUrl` locally; requiring manual copy/paste between phone and computer adds avoidable failure points.
 - Bridge control channels are useful for UX feedback loops beyond errors (`authBrowserLaunch` success/failure), not just transport diagnostics.
+- Pierre's open-source diff packages are web-oriented (`react-dom` peers), so Expo clients need native rendering rather than direct package usage.
+- Aggregated `turn/diff/updated` is best treated as a dedicated transcript artifact, not merged into file-change plain text summaries.
+- Rendering line-numbered unified diff previews with strict caps (files + lines per hunk) keeps UI responsive during large patch streams.
 
 Add new entries with date, context, and impact.

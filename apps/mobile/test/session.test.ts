@@ -113,4 +113,32 @@ describe("session reducer", () => {
     expect(state.turnStatus).toBe("inProgress");
     expect(state.transcript[0].text).toBe("Starting...");
   });
+
+  it("records turn plan updates", () => {
+    const next = applyCodexNotification(createInitialSessionState(), "turn/plan/updated", {
+      turnId: "turn_plan",
+      explanation: "Implementation approach",
+      plan: [
+        { step: "Parse notifications", status: "completed" },
+        { step: "Render diff view", status: "inProgress" }
+      ]
+    });
+
+    expect(next.transcript).toHaveLength(1);
+    expect(next.transcript[0].type).toBe("plan");
+    expect(next.transcript[0].text).toContain("[COMPLETED] Parse notifications");
+    expect(next.transcript[0].text).toContain("[IN PROGRESS] Render diff view");
+  });
+
+  it("records aggregated diff updates", () => {
+    const next = applyCodexNotification(createInitialSessionState(), "turn/diff/updated", {
+      turnId: "turn_diff",
+      diff: "diff --git a/a.txt b/a.txt\n@@ -1 +1 @@\n-old\n+new\n"
+    });
+
+    expect(next.transcript).toHaveLength(1);
+    expect(next.transcript[0].type).toBe("diff");
+    expect(next.transcript[0].title).toBe("Pierre Diff");
+    expect(next.transcript[0].text).toContain("diff --git");
+  });
 });

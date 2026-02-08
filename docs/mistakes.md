@@ -14,6 +14,10 @@
 - Root cause: Command/payload size limits were ignored during a large UI refactor.
 - Remediation: Split file writes into smaller chunks and kept componentized UI primitives in separate files to reduce patch size.
 - Prevention rule: For large UI rewrites, break changes into modular files first, then integrate incrementally.
+- Mistake: Assumed a web diff library could be dropped into Expo native UI without runtime constraints review.
+- Root cause: Package compatibility checks were deferred until implementation.
+- Remediation: Verified peer dependencies (`react-dom`) before integration and implemented a native diff renderer for mobile.
+- Prevention rule: For each UI dependency, confirm platform compatibility (`react-native` vs `react-dom`) before design implementation starts.
 
 When mistakes happen, document:
 - what happened

@@ -33,6 +33,7 @@
 - Thread archive uses index-card styling with slight tilt variation.
 - Approvals use explicit stamp animation (`APPROVED` / `DECLINED`) with haptic feedback.
 - Composer controls use tactile chips and quick actions.
+- Diff rendering uses a Pierre-style unified patch card with file headers, hunk headers, line numbers, and add/remove color channels.
 
 ## Accessibility and runtime rules
 

@@ -31,6 +31,9 @@
 - Keep request payload shaping in pure helper modules with tests whenever UI toggles influence execution behavior.
 - Treat auth lifecycle notifications as state transitions to reconcile immediately, rather than relying on periodic reads.
 - For ChatGPT auth in app-server integrations, prefer bridge-side local browser launch of returned `authUrl` and provide a CLI opt-out for non-interactive/headless runs.
+- Validate package runtime targets before adoption (`react-dom` packages are not portable to Expo native without wrappers).
+- Keep aggregated turn diffs and plan updates as first-class timeline artifacts (`turn/diff/updated`, `turn/plan/updated`) to preserve execution transparency.
+- Cap diff rendering work (max files + max lines per hunk) and surface truncation explicitly to balance fidelity with mobile performance.
 
 ## Product constraints (v1)
 

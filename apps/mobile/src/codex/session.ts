@@ -1,6 +1,15 @@
 export type TranscriptItem = {
   id: string;
-  type: "userMessage" | "agentMessage" | "commandExecution" | "fileChange" | "system";
+  type:
+    | "userMessage"
+    | "agentMessage"
+    | "commandExecution"
+    | "fileChange"
+    | "plan"
+    | "diff"
+    | "toolCall"
+    | "reasoning"
+    | "system";
   title: string;
   text: string;
   status?: string;
@@ -166,6 +175,55 @@ const codexItemToTranscriptItem = (item: Record<string, unknown>): TranscriptIte
     };
   }
 
+  if (type === "plan") {
+    return {
+      id,
+      type: "plan",
+      title: "Plan",
+      text: typeof item.text === "string" ? item.text : "",
+      status: typeof item.status === "string" ? item.status : undefined
+    };
+  }
+
+  if (type === "reasoning") {
+    const summary = asArray(item.summary)
+      .map((entry) => asRecord(entry))
+      .filter((entry): entry is Record<string, unknown> => Boolean(entry))
+      .map((entry) => (typeof entry.text === "string" ? entry.text : ""))
+      .filter((entry) => entry.length > 0)
+      .join("\n");
+    return {
+      id,
+      type: "reasoning",
+      title: "Reasoning",
+      text: summary,
+      status: typeof item.status === "string" ? item.status : undefined
+    };
+  }
+
+  if (type === "mcpToolCall") {
+    const server = typeof item.server === "string" ? item.server : "mcp";
+    const tool = typeof item.tool === "string" ? item.tool : "tool";
+    return {
+      id,
+      type: "toolCall",
+      title: `Tool: ${server}.${tool}`,
+      text: "",
+      status: typeof item.status === "string" ? item.status : undefined
+    };
+  }
+
+  if (type === "webSearch") {
+    const query = typeof item.query === "string" ? item.query : "";
+    return {
+      id,
+      type: "toolCall",
+      title: "Tool: web search",
+      text: query,
+      status: typeof item.status === "string" ? item.status : undefined
+    };
+  }
+
   return {
     id,
     type: "system",
@@ -187,6 +245,85 @@ const extractStringField = (
   }
 
   return "";
+};
+
+const upsertTurnPlanUpdate = (
+  state: CodexSessionState,
+  paramsRecord: Record<string, unknown> | null
+): CodexSessionState => {
+  const turnId = extractStringField(paramsRecord, ["turnId"]);
+  if (!turnId) {
+    return state;
+  }
+
+  const explanation = extractStringField(paramsRecord, ["explanation"]);
+  const planEntries = asArray(paramsRecord?.plan)
+    .map((entry) => asRecord(entry))
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry));
+
+  const statusLabel: Record<string, string> = {
+    pending: "PENDING",
+    inProgress: "IN PROGRESS",
+    completed: "COMPLETED"
+  };
+
+  const planLines = planEntries
+    .map((entry) => {
+      const step = typeof entry.step === "string" ? entry.step : "";
+      if (!step) {
+        return "";
+      }
+      const status = typeof entry.status === "string" ? entry.status : "pending";
+      return `[${statusLabel[status] ?? "PENDING"}] ${step}`;
+    })
+    .filter((line) => line.length > 0);
+
+  const text = [explanation, ...planLines].filter((line) => line.length > 0).join("\n");
+  if (!text) {
+    return state;
+  }
+
+  return {
+    ...state,
+    transcript: upsertTranscriptItem(state.transcript, {
+      id: `plan-${turnId}`,
+      type: "plan",
+      title: "Plan update",
+      text
+    })
+  };
+};
+
+const extractUnifiedDiff = (paramsRecord: Record<string, unknown> | null): string => {
+  const inline = extractStringField(paramsRecord, ["diff"]);
+  if (inline) {
+    return inline;
+  }
+  const diffRecord = asRecord(paramsRecord?.diff);
+  return extractStringField(diffRecord, ["unified", "unifiedDiff", "patch", "text"]);
+};
+
+const upsertTurnDiffUpdate = (
+  state: CodexSessionState,
+  paramsRecord: Record<string, unknown> | null
+): CodexSessionState => {
+  const diff = extractUnifiedDiff(paramsRecord);
+  if (!diff) {
+    return state;
+  }
+
+  const turnId =
+    extractStringField(paramsRecord, ["turnId"]) || state.activeTurnId || "unknown-turn";
+
+  return {
+    ...state,
+    transcript: upsertTranscriptItem(state.transcript, {
+      id: `diff-${turnId}`,
+      type: "diff",
+      title: "Pierre Diff",
+      text: diff
+    })
+  };
 };
 
 export const createInitialSessionState = (): CodexSessionState => ({
@@ -312,6 +449,36 @@ export const applyCodexNotification = (
     };
   }
 
+  if (method === "item/plan/delta") {
+    const itemId = extractStringField(paramsRecord, ["itemId", "id"]);
+    const delta = extractStringField(paramsRecord, ["delta", "textDelta", "text"]);
+    if (!itemId || !delta) {
+      return state;
+    }
+    return {
+      ...state,
+      transcript: appendTranscriptText(state.transcript, itemId, "plan", "Plan", delta)
+    };
+  }
+
+  if (method === "item/reasoning/summaryTextDelta") {
+    const itemId = extractStringField(paramsRecord, ["itemId", "id"]);
+    const delta = extractStringField(paramsRecord, ["delta", "textDelta", "text"]);
+    if (!itemId || !delta) {
+      return state;
+    }
+    return {
+      ...state,
+      transcript: appendTranscriptText(
+        state.transcript,
+        itemId,
+        "reasoning",
+        "Reasoning",
+        delta
+      )
+    };
+  }
+
   if (method === "item/commandExecution/outputDelta") {
     const itemId = extractStringField(paramsRecord, ["itemId", "id"]);
     const delta = extractStringField(paramsRecord, ["delta", "outputDelta", "text"]);
@@ -340,6 +507,14 @@ export const applyCodexNotification = (
       ...state,
       transcript: appendTranscriptText(state.transcript, itemId, "fileChange", "File change", delta)
     };
+  }
+
+  if (method === "turn/plan/updated") {
+    return upsertTurnPlanUpdate(state, paramsRecord);
+  }
+
+  if (method === "turn/diff/updated") {
+    return upsertTurnDiffUpdate(state, paramsRecord);
   }
 
   return state;

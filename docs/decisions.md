@@ -89,3 +89,9 @@
 - Decision: When app-server responds to ChatGPT login start with `authUrl`, bridge opens it on the local computer browser automatically.
 - Why: ChatGPT callback is hosted on localhost by app-server; opening from the computer avoids dead-end auth starts from phone-only context.
 - Consequence: Added cross-platform URL opener with safe protocol checks and a disable flag (`--no-open-auth-url`) for headless environments.
+
+## 2026-02-08 - Implement Pierre-style diff UI natively instead of embedding `@pierre/diffs`
+
+- Decision: Build a native React Native diff parser + renderer inspired by Pierre's diff aesthetic, rather than importing `@pierre/diffs` directly.
+- Why: `@pierre/diffs` and `@pierre/precision-diffs` require `react-dom` and are web-first, which does not fit Expo React Native runtime.
+- Consequence: Added `parseUnifiedDiff` and `PierreDiffCard` for mobile-safe diff rendering, and wired reducer support for `turn/diff/updated` + `turn/plan/updated`.
