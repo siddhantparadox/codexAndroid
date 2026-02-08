@@ -11,6 +11,7 @@ import { WebSocketServer } from "ws";
 import type WebSocket from "ws";
 import { parseBridgeArgs } from "./args.js";
 import { extractChatgptAuthUrl, openExternalUrl } from "./auth-url.js";
+import { writeClientLog } from "./client-log.js";
 import { resolveBridgeEndpoints } from "./network.js";
 import { pairingPayloadToQrText, printPairingQr } from "./pairing-qr.js";
 
@@ -220,6 +221,8 @@ wss.on("connection", (ws) => {
             t: parsed.__bridge.t
           }
         });
+      } else if (parsed.__bridge.type === "clientLog") {
+        writeClientLog(parsed.__bridge);
       }
       return;
     }

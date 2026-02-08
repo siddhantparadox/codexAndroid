@@ -118,6 +118,13 @@ type StampState = {
   visible: boolean;
 };
 
+type BridgeClientLogLevel = "debug" | "info" | "warn" | "error";
+
+type ErrorUtilsGlobal = {
+  getGlobalHandler?: () => ((error: Error, isFatal?: boolean) => void) | undefined;
+  setGlobalHandler?: (handler: (error: Error, isFatal?: boolean) => void) => void;
+};
+
 const APPROVAL_TIMEOUT_MS = 120000;
 const HEARTBEAT_DEGRADED_HINT = "Heartbeat delayed. Connection quality is degraded.";
 const HEARTBEAT_RECONNECT_HINT = "Heartbeat lost. Reconnecting to bridge...";
@@ -288,6 +295,7 @@ export const App = (): React.ReactElement => {
   const stampTimersRef = React.useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const resumedThreadIdsRef = React.useRef<Set<string>>(new Set());
   const heartbeatRef = React.useRef<BridgeHeartbeatController | null>(null);
+  const lastReportedErrorRef = React.useRef<string | null>(null);
 
   const theme = themeName === "parchment" ? parchmentTheme : carbonTheme;
   const reducedMotion = reducedMotionOverride ?? systemReducedMotion;
@@ -312,6 +320,37 @@ export const App = (): React.ReactElement => {
         : connectionHealth === "degraded"
           ? theme.amber
           : theme.danger;
+
+  const sendClientLog = React.useCallback(
+    (
+      level: BridgeClientLogLevel,
+      message: string,
+      context?: Record<string, unknown>
+    ): void => {
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+
+      try {
+        socket.send(
+          JSON.stringify({
+            __bridge: {
+              type: "clientLog",
+              level,
+              source: "mobile.app",
+              message,
+              timestamp: Date.now(),
+              context
+            }
+          })
+        );
+      } catch {
+        // best effort only; avoid secondary failures while logging errors.
+      }
+    },
+    []
+  );
 
   const getApprovalItemContext = React.useCallback(
     (approval: PendingApproval): { itemText?: string; diffText?: string } => {
@@ -396,6 +435,49 @@ export const App = (): React.ReactElement => {
   React.useEffect(() => {
     pairingRef.current = pairing;
   }, [pairing]);
+
+  React.useEffect(() => {
+    const maybeErrorUtils = (
+      globalThis as typeof globalThis & { ErrorUtils?: ErrorUtilsGlobal }
+    ).ErrorUtils;
+    const previousHandler = maybeErrorUtils?.getGlobalHandler?.();
+
+    maybeErrorUtils?.setGlobalHandler?.((caughtError, isFatal) => {
+      const message =
+        caughtError instanceof Error
+          ? caughtError.message
+          : String(caughtError ?? "Unknown error");
+      sendClientLog("error", `Unhandled exception${isFatal ? " (fatal)" : ""}: ${message}`);
+      if (previousHandler) {
+        previousHandler(caughtError, isFatal);
+      }
+    });
+
+    return () => {
+      if (previousHandler) {
+        maybeErrorUtils?.setGlobalHandler?.(previousHandler);
+      }
+    };
+  }, [sendClientLog]);
+
+  React.useEffect(() => {
+    if (!error) {
+      lastReportedErrorRef.current = null;
+      return;
+    }
+
+    if (lastReportedErrorRef.current === error) {
+      return;
+    }
+
+    lastReportedErrorRef.current = error;
+    sendClientLog("error", error, {
+      screen: activeScreen,
+      status,
+      endpoint: connectionEndpoint ?? "none",
+      bridgeAppServerState
+    });
+  }, [activeScreen, bridgeAppServerState, connectionEndpoint, error, sendClientLog, status]);
 
   React.useEffect(() => {
     if (pendingApprovals.length > 0) {

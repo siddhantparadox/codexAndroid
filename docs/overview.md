@@ -24,6 +24,7 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
 - Bridge now emits `appServerStatus` control events (`starting`, `running`, `stopped`, `error`) so mobile can surface app-server health explicitly
 - Bridge now auto-opens ChatGPT auth URLs on the computer when `account/login/start` (chatgpt) returns `authUrl`, with opt-out flag `--no-open-auth-url`
 - Bridge emits `__bridge.authBrowserLaunch` status to mobile so the app can display browser-launch success/failure feedback in realtime
+- Bridge now accepts `__bridge.clientLog` messages from mobile and prints them to terminal logs for phone-side error visibility
 - Mobile package includes initial pairing flow:
   - QR scan support via `expo-camera`
   - manual JSON pairing fallback
@@ -64,6 +65,7 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
   - continuously refreshes connection latency
   - marks connection degraded on missed heartbeat windows
   - forces socket reconnect after repeated missed heartbeats
+- Mobile now forwards app errors (and unhandled JS exceptions when available) to bridge through `__bridge.clientLog` with screen/endpoint context
 - Session transcript now includes:
   - command `cwd` context on command execution items
   - file-change summaries from `changes`

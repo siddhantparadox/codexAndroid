@@ -50,6 +50,7 @@
 - For approval UX, always show thread/turn/item identifiers plus a concise risk explanation before exposing accept/decline actions.
 - Prefer diff-first transparency for file approvals: use request-level per-file diffs when present and fall back to aggregated `turn/diff/updated` context.
 - Keep risk reasons structured (`code`, `text`, `explainer`) so UI can present concise labels by default and expand only when users ask for detail.
+- Mirror mobile runtime errors to bridge terminal logs over a typed control message so on-device failures are debuggable from the computer terminal.
 
 ## Product constraints (v1)
 

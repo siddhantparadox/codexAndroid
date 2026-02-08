@@ -54,4 +54,28 @@ describe("bridge control messages", () => {
       expect(parsed.__bridge.pid).toBe(12345);
     }
   });
+
+  it("parses client log messages", () => {
+    const message = {
+      __bridge: {
+        type: "clientLog",
+        level: "error",
+        source: "mobile.app",
+        message: "Request timed out: thread/start",
+        timestamp: Date.now(),
+        context: {
+          endpoint: "lan",
+          screen: "threads"
+        }
+      }
+    };
+
+    expect(isBridgeControlMessage(message)).toBe(true);
+    const parsed = parseBridgeControlMessage(message);
+    expect(parsed.__bridge.type).toBe("clientLog");
+    if (parsed.__bridge.type === "clientLog") {
+      expect(parsed.__bridge.level).toBe("error");
+      expect(parsed.__bridge.source).toBe("mobile.app");
+    }
+  });
 });

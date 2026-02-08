@@ -23,6 +23,14 @@ const bridgeErrorPayloadSchema = z.object({
     code: z.string().min(1),
     message: z.string().min(1)
 });
+const bridgeClientLogPayloadSchema = z.object({
+    type: z.literal("clientLog"),
+    level: z.enum(["debug", "info", "warn", "error"]),
+    source: z.string().min(1),
+    message: z.string().min(1),
+    timestamp: z.number().int().positive(),
+    context: z.record(z.unknown()).optional()
+});
 const bridgeAuthBrowserLaunchPayloadSchema = z.object({
     type: z.literal("authBrowserLaunch"),
     url: z.string().url(),
@@ -42,6 +50,7 @@ export const bridgePayloadSchema = z.discriminatedUnion("type", [
     bridgePingPayloadSchema,
     bridgePongPayloadSchema,
     bridgeErrorPayloadSchema,
+    bridgeClientLogPayloadSchema,
     bridgeAuthBrowserLaunchPayloadSchema,
     bridgeAppServerStatusPayloadSchema
 ]);
