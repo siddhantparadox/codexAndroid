@@ -40,5 +40,8 @@
 - For existing-thread workflows, resume state benefits from local tracking to avoid repeated `thread/resume` calls and improve turn-start reliability.
 - Connection fallback diagnostics become much more useful when missing endpoints are captured explicitly (`endpoint_unavailable`) instead of silently skipped.
 - Storing a short history of per-attempt latency and reason gives enough signal for debugging without introducing heavy telemetry infrastructure.
+- Bridge health should not be inferred from socket state alone; explicit app-server lifecycle events materially improve troubleshooting.
+- Guarding `appServer.stdin` writes with process-state checks prevents silent drops when the app-server has exited.
+- Tailscale MagicDNS values from `tailscale status --json` can include trailing dots; normalize before building ws endpoint URLs.
 
 Add new entries with date, context, and impact.

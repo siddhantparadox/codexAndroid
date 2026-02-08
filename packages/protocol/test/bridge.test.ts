@@ -35,4 +35,23 @@ describe("bridge control messages", () => {
       expect(parsed.__bridge.success).toBe(true);
     }
   });
+
+  it("parses app-server status messages", () => {
+    const message = {
+      __bridge: {
+        type: "appServerStatus",
+        state: "running",
+        timestamp: Date.now(),
+        pid: 12345
+      }
+    };
+
+    expect(isBridgeControlMessage(message)).toBe(true);
+    const parsed = parseBridgeControlMessage(message);
+    expect(parsed.__bridge.type).toBe("appServerStatus");
+    if (parsed.__bridge.type === "appServerStatus") {
+      expect(parsed.__bridge.state).toBe("running");
+      expect(parsed.__bridge.pid).toBe(12345);
+    }
+  });
 });

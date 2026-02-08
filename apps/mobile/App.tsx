@@ -249,6 +249,10 @@ export const App = (): React.ReactElement => {
   const [latencyHistoryMs, setLatencyHistoryMs] = React.useState<number[]>([]);
   const [connectionAttemptLog, setConnectionAttemptLog] = React.useState<ConnectionAttempt[]>([]);
   const [lastConnectionHint, setLastConnectionHint] = React.useState<string | null>(null);
+  const [bridgeAppServerState, setBridgeAppServerState] = React.useState<
+    "starting" | "running" | "stopped" | "error" | "unknown"
+  >("unknown");
+  const [bridgeAppServerMessage, setBridgeAppServerMessage] = React.useState<string | null>(null);
   const [stampByRequestId, setStampByRequestId] = React.useState<Record<number, StampState>>({});
 
   const socketRef = React.useRef<WebSocket | null>(null);
@@ -268,7 +272,15 @@ export const App = (): React.ReactElement => {
   const reducedMotion = reducedMotionOverride ?? systemReducedMotion;
   const connected = Boolean(bootstrap);
   const connectionHealth: "connected" | "connecting" | "degraded" | "offline" =
-    connected ? "connected" : isLoading ? "connecting" : lastConnectionHint ? "degraded" : "offline";
+    connected
+      ? bridgeAppServerState === "error" || bridgeAppServerState === "stopped"
+        ? "degraded"
+        : "connected"
+      : isLoading
+        ? "connecting"
+        : lastConnectionHint
+          ? "degraded"
+          : "offline";
   const connectionHealthColor =
     connectionHealth === "connected"
       ? theme.acid
@@ -358,6 +370,8 @@ export const App = (): React.ReactElement => {
     setLatencyHistoryMs([]);
     setConnectionAttemptLog([]);
     setLastConnectionHint(null);
+    setBridgeAppServerState("unknown");
+    setBridgeAppServerMessage(null);
     setActiveLoginId(null);
     setPendingAuthUrl(null);
     setApiKeyInput("");
@@ -543,6 +557,8 @@ export const App = (): React.ReactElement => {
     setConnectionEndpoint(null);
     setConnectionLatencyMs(null);
     setLastConnectionHint(null);
+    setBridgeAppServerState("unknown");
+    setBridgeAppServerMessage(null);
     resumedThreadIdsRef.current.clear();
 
     const startedAtMs = Date.now();
@@ -567,6 +583,26 @@ export const App = (): React.ReactElement => {
               if (message.__bridge.message) {
                 setError(`[bridge] ${message.__bridge.message}`);
               }
+            }
+            return;
+          }
+
+          if (message.__bridge.type === "appServerStatus") {
+            setBridgeAppServerState(message.__bridge.state);
+            setBridgeAppServerMessage(message.__bridge.message ?? null);
+            if (message.__bridge.state === "error" || message.__bridge.state === "stopped") {
+              if (message.__bridge.message) {
+                setError(`[bridge] ${message.__bridge.message}`);
+              }
+              setLastConnectionHint(
+                "Bridge app-server is unavailable. Restart bridge or check codex CLI on computer."
+              );
+            }
+            if (message.__bridge.state === "starting") {
+              setStatus("Bridge app-server starting...");
+            }
+            if (message.__bridge.state === "running") {
+              setStatus("Bridge app-server running.");
             }
           }
         },
@@ -643,6 +679,8 @@ export const App = (): React.ReactElement => {
           setConnectionEndpoint(null);
           setConnectionLatencyMs(null);
           setLastConnectionHint("Connection closed unexpectedly. Computer may be asleep or bridge stopped.");
+          setBridgeAppServerState("unknown");
+          setBridgeAppServerMessage(null);
           resumedThreadIdsRef.current.clear();
 
           if (manualDisconnectRef.current) {
@@ -661,6 +699,8 @@ export const App = (): React.ReactElement => {
       resumedThreadIdsRef.current.clear();
       setPendingApprovals([]);
       setCommandAcceptSettingsJson("");
+      setBridgeAppServerState("unknown");
+      setBridgeAppServerMessage(null);
       setStatus(`Connected via ${connection.endpointType}. Initializing...`);
       const snapshot = await initializeAndBootstrap(client);
       const successfulAttempt =
@@ -676,6 +716,8 @@ export const App = (): React.ReactElement => {
       setLatencyHistoryMs((previous) => [...previous, latencyMs].slice(-8));
       setConnectionAttemptLog((previous) => [...previous, ...connection.attempts].slice(-20));
       setLastConnectionHint(null);
+      setBridgeAppServerState("running");
+      setBridgeAppServerMessage("codex app-server is ready.");
       setStatus(`Connected via ${connection.endpointType}. App server ready.`);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
     } catch (caughtError) {
@@ -735,6 +777,8 @@ export const App = (): React.ReactElement => {
     setConnectionEndpoint(null);
     setConnectionLatencyMs(null);
     setLastConnectionHint(null);
+    setBridgeAppServerState("unknown");
+    setBridgeAppServerMessage(null);
     setActiveLoginId(null);
     setPendingAuthUrl(null);
     setIsAuthSubmitting(false);
@@ -1588,6 +1632,14 @@ export const App = (): React.ReactElement => {
         <Typo theme={theme} variant="micro" tone="paper">
           Connection health: {connectionHealth}
         </Typo>
+        <Typo theme={theme} variant="micro" tone="paper">
+          Bridge app-server: {bridgeAppServerState}
+        </Typo>
+        {bridgeAppServerMessage ? (
+          <Typo theme={theme} variant="micro" tone="paper">
+            Bridge message: {bridgeAppServerMessage}
+          </Typo>
+        ) : null}
         <Typo theme={theme} variant="micro" tone="paper">
           Active endpoint: {connectionEndpoint ?? "none"}
         </Typo>

@@ -107,3 +107,15 @@
 - Decision: Keep structured connection attempt telemetry (`endpoint`, `reason`, `duration`, `timestamp`) and render endpoint-specific guidance in mobile diagnostics.
 - Why: Generic "connection failed" messages do not help users distinguish wrong Wi-Fi, computer asleep, token mismatch, or Tailnet issues.
 - Consequence: `connectWithEndpointFallback` now returns attempt history on success, includes `endpoint_unavailable` attempts, and mobile settings expose actionable hints and recent attempt summaries.
+
+## 2026-02-08 - Expose bridge app-server health as protocol events
+
+- Decision: Add `appServerStatus` bridge control messages and consume them in mobile diagnostics.
+- Why: Bridge reliability issues were opaque when the socket stayed up but `codex app-server` failed to start/exited.
+- Consequence: Bridge now reports `starting/running/stopped/error` with metadata, validates app-server availability before stdin writes, and sends explicit bridge errors for unavailable/write-failure paths.
+
+## 2026-02-08 - Prefer Tailscale MagicDNS endpoint over raw Tailnet IP when available
+
+- Decision: Resolve `Self.DNSName` from `tailscale status --json` and use that hostname for the `tailscale` pairing endpoint.
+- Why: MagicDNS hostnames are stable/readable and reduce pairing breakage when Tailnet IP assumptions change.
+- Consequence: Endpoint resolver now attempts MagicDNS discovery with graceful fallback to Tailnet IPv4.

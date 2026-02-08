@@ -27,12 +27,36 @@ appServer.stderr.on("data", (chunk) => {
   process.stderr.write(chunk);
 });
 
+appServer.on("spawn", () => {
+  updateAppServerState(
+    "running",
+    "codex app-server started",
+    appServer.exitCode ?? null
+  );
+});
+
 appServer.on("error", (error) => {
   console.error(`[bridge] failed to start codex app-server: ${error.message}`);
+  updateAppServerState("error", `Failed to start app-server: ${error.message}`);
+  if (activeClient && activeClient.readyState === activeClient.OPEN) {
+    sendBridgeError(
+      activeClient,
+      "app_server_start_failed",
+      "Failed to start codex app-server. Check codex CLI installation."
+    );
+  }
 });
 
 appServer.on("exit", (code) => {
   console.error(`[bridge] codex app-server exited with code ${String(code)}`);
+  updateAppServerState("stopped", `codex app-server exited (${String(code)})`, code);
+  if (activeClient && activeClient.readyState === activeClient.OPEN) {
+    sendBridgeError(
+      activeClient,
+      "app_server_exited",
+      `codex app-server exited with code ${String(code)}`
+    );
+  }
 });
 
 const appServerLines = readline.createInterface({
@@ -43,9 +67,46 @@ const server = createServer();
 const wss = new WebSocketServer({ noServer: true });
 
 let activeClient: WebSocket | null = null;
+let appServerState: "starting" | "running" | "stopped" | "error" = "starting";
+let appServerMessage: string | undefined = "Starting codex app-server";
+let appServerExitCode: number | null | undefined;
 
 const sendBridge = (ws: WebSocket, message: BridgeControlMessage): void => {
   ws.send(JSON.stringify(message));
+};
+
+const broadcastBridge = (message: BridgeControlMessage): void => {
+  if (!activeClient || activeClient.readyState !== activeClient.OPEN) {
+    return;
+  }
+  sendBridge(activeClient, message);
+};
+
+const sendAppServerStatus = (): void => {
+  broadcastBridge({
+    __bridge: {
+      type: "appServerStatus",
+      state: appServerState,
+      timestamp: Date.now(),
+      message: appServerMessage,
+      pid: appServer.pid ?? undefined,
+      exitCode:
+        typeof appServerExitCode === "number" || appServerExitCode === null
+          ? appServerExitCode
+          : undefined
+    }
+  });
+};
+
+const updateAppServerState = (
+  state: "starting" | "running" | "stopped" | "error",
+  message?: string,
+  exitCode?: number | null
+): void => {
+  appServerState = state;
+  appServerMessage = message;
+  appServerExitCode = exitCode;
+  sendAppServerStatus();
 };
 
 const sendBridgeError = (ws: WebSocket, code: string, message: string): void => {
@@ -126,6 +187,19 @@ wss.on("connection", (ws) => {
       timestamp: Date.now()
     }
   });
+  sendBridge(ws, {
+    __bridge: {
+      type: "appServerStatus",
+      state: appServerState,
+      timestamp: Date.now(),
+      message: appServerMessage,
+      pid: appServer.pid ?? undefined,
+      exitCode:
+        typeof appServerExitCode === "number" || appServerExitCode === null
+          ? appServerExitCode
+          : undefined
+    }
+  });
 
   ws.on("message", (raw) => {
     const text = raw.toString();
@@ -150,7 +224,34 @@ wss.on("connection", (ws) => {
       return;
     }
 
-    appServer.stdin.write(`${JSON.stringify(parsed)}\n`);
+    if (
+      appServerState === "error" ||
+      appServerState === "stopped" ||
+      appServer.exitCode !== null ||
+      appServer.stdin.destroyed ||
+      !appServer.stdin.writable
+    ) {
+      sendBridgeError(
+        ws,
+        "app_server_unavailable",
+        "codex app-server is unavailable. Restart bridge or check codex installation."
+      );
+      sendAppServerStatus();
+      return;
+    }
+
+    appServer.stdin.write(`${JSON.stringify(parsed)}\n`, (error) => {
+      if (!error) {
+        return;
+      }
+
+      updateAppServerState("error", `Failed to write to app-server: ${error.message}`);
+      sendBridgeError(
+        ws,
+        "app_server_write_failed",
+        "Failed to send request to codex app-server."
+      );
+    });
   });
 
   ws.on("close", () => {

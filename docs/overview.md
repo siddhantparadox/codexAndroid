@@ -21,6 +21,7 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
 - Monorepo scaffold created with Turborepo + PNPM workspace
 - Protocol package defines pairing and bridge-control schemas
 - Bridge package supports token auth, single-client lock, app-server passthrough, and terminal QR output for pairing
+- Bridge now emits `appServerStatus` control events (`starting`, `running`, `stopped`, `error`) so mobile can surface app-server health explicitly
 - Bridge now auto-opens ChatGPT auth URLs on the computer when `account/login/start` (chatgpt) returns `authUrl`, with opt-out flag `--no-open-auth-url`
 - Bridge emits `__bridge.authBrowserLaunch` status to mobile so the app can display browser-launch success/failure feedback in realtime
 - Mobile package includes initial pairing flow:
@@ -56,6 +57,7 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
   - actionable connection hints derived from fallback failures
   - connection health state (`connected` / `connecting` / `degraded` / `offline`)
   - latency trend history visible in settings diagnostics
+  - bridge app-server status visibility in settings diagnostics
 - Session transcript now includes:
   - command `cwd` context on command execution items
   - file-change summaries from `changes`
@@ -84,4 +86,5 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
   - enriched thread metadata rendering (provider/source/updated time)
   - cursor-based `thread/list` pagination with load-more behavior
   - explicit selected-thread actions: resume, fork, archive, unarchive
+- Bridge endpoint discovery now supports Tailscale MagicDNS hostnames (when available via local `tailscale status --json`)
 - Docs folder now tracks decisions, learnings, mistakes, and best practices

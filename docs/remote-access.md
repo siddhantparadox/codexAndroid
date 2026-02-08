@@ -13,6 +13,7 @@
   2. `tailscale`
 - Bridge startup now prints pairing JSON and a terminal QR to support scan-based pairing.
 - Mobile now records endpoint attempt diagnostics (reason + duration) and surfaces actionable hints in Settings.
+- Bridge now prefers Tailscale MagicDNS hostname endpoint when available locally (falls back to Tailnet IPv4).
 
 ## Troubleshooting checklist
 
@@ -22,3 +23,4 @@
 - Verify pairing token is valid.
 - If LAN fails, confirm phone/computer are on the same SSID and bridge process is running.
 - If Tailnet fails, confirm Tailscale is connected on both phone and computer.
+- If diagnostics show app-server `stopped` or `error`, restart bridge and verify `codex` CLI is installed/accessible.

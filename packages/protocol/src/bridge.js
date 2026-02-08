@@ -29,12 +29,21 @@ const bridgeAuthBrowserLaunchPayloadSchema = z.object({
     success: z.boolean(),
     message: z.string().min(1).optional()
 });
+const bridgeAppServerStatusPayloadSchema = z.object({
+    type: z.literal("appServerStatus"),
+    state: z.enum(["starting", "running", "stopped", "error"]),
+    timestamp: z.number().int().positive(),
+    message: z.string().min(1).optional(),
+    pid: z.number().int().positive().optional(),
+    exitCode: z.number().int().nullable().optional()
+});
 export const bridgePayloadSchema = z.discriminatedUnion("type", [
     bridgeHelloPayloadSchema,
     bridgePingPayloadSchema,
     bridgePongPayloadSchema,
     bridgeErrorPayloadSchema,
-    bridgeAuthBrowserLaunchPayloadSchema
+    bridgeAuthBrowserLaunchPayloadSchema,
+    bridgeAppServerStatusPayloadSchema
 ]);
 export const bridgeControlMessageSchema = z.object({
     __bridge: bridgePayloadSchema

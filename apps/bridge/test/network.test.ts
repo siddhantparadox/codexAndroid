@@ -15,4 +15,21 @@ describe("network classifiers", () => {
     expect(__test__.isTailscaleIPv4("100.63.0.1")).toBe(false);
     expect(__test__.isTailscaleIPv4("101.64.0.1")).toBe(false);
   });
+
+  it("parses magicdns hostname from tailscale status json", () => {
+    const raw = JSON.stringify({
+      Self: {
+        DNSName: "workstation.tail123.ts.net."
+      }
+    });
+    expect(__test__.parseMagicDnsNameFromStatusJson(raw)).toBe(
+      "workstation.tail123.ts.net"
+    );
+  });
+
+  it("normalizes dns names", () => {
+    expect(__test__.normalizeDnsName("host.tail.ts.net.")).toBe("host.tail.ts.net");
+    expect(__test__.normalizeDnsName("")).toBeUndefined();
+    expect(__test__.normalizeDnsName(42)).toBeUndefined();
+  });
 });

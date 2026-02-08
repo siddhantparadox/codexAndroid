@@ -38,6 +38,9 @@
 - When users can select historic threads, enforce `thread/resume` before starting a turn unless the thread is already known in-memory.
 - In endpoint fallback flows, treat missing endpoints as explicit diagnostic events rather than implicit no-ops.
 - Keep user-facing connection hints deterministic and endpoint-scoped (LAN guidance should differ from Tailnet guidance).
+- For bridge runtimes, emit process-health events for child services (`codex app-server`) and show them in client diagnostics.
+- Before proxying client RPC payloads, verify child process writability/state and return structured bridge errors on failure paths.
+- Normalize discovered hostnames (for example trailing-dot DNS names) before serializing pairing endpoints.
 
 ## Product constraints (v1)
 
