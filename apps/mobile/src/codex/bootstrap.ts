@@ -1,4 +1,5 @@
 import { CodexRpcClient } from "./rpc-client";
+import { parseAccountSnapshot } from "./account";
 import { parseThreadListResponse, type ThreadSummary } from "./thread-list";
 
 export type ModelSummary = {
@@ -40,13 +41,9 @@ export const initializeAndBootstrap = async (
     version: "0.1.0"
   });
 
-  const accountResult = asRecord(
+  const accountSnapshot = parseAccountSnapshot(
     await client.request("account/read", { refreshToken: false })
   );
-  const account = asRecord(accountResult?.account);
-  const requiresOpenaiAuth = Boolean(accountResult?.requiresOpenaiAuth);
-  const authMode =
-    typeof account?.type === "string" ? account.type : account ? "unknown" : "none";
 
   const modelsResult = asRecord(await client.request("model/list", { limit: 20 }));
   const modelData = asArray(modelsResult?.data)
@@ -73,8 +70,8 @@ export const initializeAndBootstrap = async (
   const threadData = parseThreadListResponse(threadResult);
 
   return {
-    requiresOpenaiAuth,
-    authMode,
+    requiresOpenaiAuth: accountSnapshot.requiresOpenaiAuth,
+    authMode: accountSnapshot.authMode,
     modelCount: modelData.length,
     models: modelData,
     threadCount: threadData.length,

@@ -9,6 +9,7 @@ describe("parseBridgeArgs", () => {
     expect(parsed.port).toBe(8787);
     expect(parsed.name).toBe("Codex Mobile Bridge");
     expect(parsed.token.length).toBeGreaterThanOrEqual(24);
+    expect(parsed.autoOpenAuthUrl).toBe(true);
   });
 
   it("parses explicit values", () => {
@@ -22,9 +23,15 @@ describe("parseBridgeArgs", () => {
     expect(parsed.token).toBe("x".repeat(24));
     expect(parsed.name).toBe("Desk");
     expect(parsed.codexBin).toBe("codex-bin");
+    expect(parsed.autoOpenAuthUrl).toBe(true);
   });
 
   it("rejects invalid port values", () => {
     expect(() => parseBridgeArgs(["--port", "-1"], "/repo")).toThrowError();
+  });
+
+  it("disables auth-url auto-open when requested", () => {
+    const parsed = parseBridgeArgs(["--no-open-auth-url"], "/repo");
+    expect(parsed.autoOpenAuthUrl).toBe(false);
   });
 });

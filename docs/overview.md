@@ -21,6 +21,8 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
 - Monorepo scaffold created with Turborepo + PNPM workspace
 - Protocol package defines pairing and bridge-control schemas
 - Bridge package supports token auth, single-client lock, app-server passthrough, and terminal QR output for pairing
+- Bridge now auto-opens ChatGPT auth URLs on the computer when `account/login/start` (chatgpt) returns `authUrl`, with opt-out flag `--no-open-auth-url`
+- Bridge emits `__bridge.authBrowserLaunch` status to mobile so the app can display browser-launch success/failure feedback in realtime
 - Mobile package includes initial pairing flow:
   - QR scan support via `expo-camera`
   - manual JSON pairing fallback
@@ -41,6 +43,12 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
   - explicit accept/decline responses from app UI
   - optional command `acceptSettings` JSON passthrough on accept decisions
   - approval cards now show thread/turn ids and latest transcript item context by `itemId`
+- Mobile auth workflow now includes:
+  - `account/login/start` via ChatGPT flow
+  - `account/login/start` via API key
+  - `account/login/cancel`
+  - `account/logout`
+  - auth state refresh from `account/read` + `account/updated` + `account/login/completed`
 - Mobile connection lifecycle now supports reconnect with exponential backoff after unexpected disconnects
 - Session transcript now includes:
   - command `cwd` context on command execution items
@@ -56,4 +64,11 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
   - reusable primitives (`AppBackground`, `Typo`, `IndexCard`, `Chip`, `Stamp`)
 - Approval UX now includes a visible stamp animation moment on approve/decline decisions
 - RPC request timeout default increased to 30s to reduce transient timeout failures in slower runtime conditions
+- Interrupt action now calls `turn/interrupt` for active turn/thread instead of disconnecting the bridge socket
+- Composer toggles now affect runtime turn parameters:
+  - model selection
+  - effort
+  - mode-based sandbox policy
+  - network access
+  - reasoning summary mode
 - Docs folder now tracks decisions, learnings, mistakes, and best practices

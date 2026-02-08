@@ -71,3 +71,21 @@
 - Decision: Replace the early utilitarian mobile screen set with a distinct editorial shell using index-card threads, stamp-based approvals, and a three-tab IA (`Threads`, `Approvals`, `Settings`).
 - Why: v1 requires high trust for remote execution decisions; stronger visual hierarchy and signature interactions improve scanability and decision confidence on phone-sized screens.
 - Consequence: UI now depends on a dedicated design system layer (theme tokens, custom fonts, reusable primitives), plus animation/haptics packages for interaction feedback.
+
+## 2026-02-08 - Map composer controls directly to `turn/start` / `thread/start` overrides
+
+- Decision: Build runtime payloads from explicit mobile composer settings (mode, network, model, effort, reasoning) instead of using fixed defaults.
+- Why: V1 requires transparent control over execution profile from phone; users need immediate effect from toggles.
+- Consequence: Added pure `turn-settings` builder logic with tests and wired both thread creation and turn execution to use it.
+
+## 2026-02-08 - Handle auth as first-class mobile workflow via account APIs
+
+- Decision: Expose ChatGPT/API-key login, cancel, and logout directly in mobile settings, and track completion through `account/login/completed` + `account/updated`.
+- Why: Bootstrap-only auth visibility was insufficient for real usage; users must be able to recover auth without leaving app context.
+- Consequence: Added account parsing helpers, auth UI/actions, and explicit auth-state refresh path.
+
+## 2026-02-08 - Auto-open ChatGPT auth URL in bridge runtime
+
+- Decision: When app-server responds to ChatGPT login start with `authUrl`, bridge opens it on the local computer browser automatically.
+- Why: ChatGPT callback is hosted on localhost by app-server; opening from the computer avoids dead-end auth starts from phone-only context.
+- Consequence: Added cross-platform URL opener with safe protocol checks and a disable flag (`--no-open-auth-url`) for headless environments.

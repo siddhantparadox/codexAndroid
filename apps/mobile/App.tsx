@@ -19,6 +19,11 @@ import { IndexCard } from "./src/components/IndexCard";
 import { Stamp } from "./src/components/Stamp";
 import { Typo } from "./src/components/Typo";
 import {
+  parseAccountSnapshot,
+  parseChatgptLoginStartResult,
+  parseLoginCompletedNotification
+} from "./src/codex/account";
+import {
   initializeAndBootstrap,
   type BootstrapSnapshot
 } from "./src/codex/bootstrap";
@@ -44,6 +49,12 @@ import {
   type TranscriptItem
 } from "./src/codex/session";
 import { parseThreadListResponse } from "./src/codex/thread-list";
+import {
+  buildThreadStartParams,
+  buildTurnStartParams,
+  type EffortLevel,
+  type ReasoningMode
+} from "./src/codex/turn-settings";
 import { getAppTitle } from "./src/config";
 import { connectWithEndpointFallback } from "./src/pairing/connect";
 import { parsePairingQrPayload } from "./src/pairing/qr";
@@ -173,6 +184,14 @@ export const App = (): React.ReactElement => {
   const [reducedMotionOverride, setReducedMotionOverride] = React.useState<boolean | null>(null);
   const [composerMode, setComposerMode] = React.useState<"chat" | "agent">("agent");
   const [networkAccess, setNetworkAccess] = React.useState<"off" | "on">("off");
+  const [effortLevel, setEffortLevel] = React.useState<EffortLevel>("medium");
+  const [reasoningMode, setReasoningMode] = React.useState<ReasoningMode>("summary");
+  const [showToolCalls, setShowToolCalls] = React.useState(true);
+  const [selectedModelId, setSelectedModelId] = React.useState<string | null>(null);
+  const [apiKeyInput, setApiKeyInput] = React.useState("");
+  const [activeLoginId, setActiveLoginId] = React.useState<string | null>(null);
+  const [pendingAuthUrl, setPendingAuthUrl] = React.useState<string | null>(null);
+  const [isAuthSubmitting, setIsAuthSubmitting] = React.useState(false);
   const [connectionEndpoint, setConnectionEndpoint] = React.useState<"lan" | "tailscale" | null>(null);
   const [connectionLatencyMs, setConnectionLatencyMs] = React.useState<number | null>(null);
   const [stampByRequestId, setStampByRequestId] = React.useState<Record<number, StampState>>({});
@@ -206,6 +225,15 @@ export const App = (): React.ReactElement => {
       setActiveScreen("approvals");
     }
   }, [pendingApprovals.length]);
+
+  React.useEffect(() => {
+    if (!bootstrap?.models.length) {
+      setSelectedModelId(null);
+      return;
+    }
+
+    setSelectedModelId((previous) => previous ?? bootstrap.models[0].id);
+  }, [bootstrap?.models]);
 
   React.useEffect(() => {
     const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", (enabled) => {
@@ -260,6 +288,9 @@ export const App = (): React.ReactElement => {
     setError(null);
     setConnectionEndpoint(null);
     setConnectionLatencyMs(null);
+    setActiveLoginId(null);
+    setPendingAuthUrl(null);
+    setApiKeyInput("");
     setStatus("Paired. Ready to connect.");
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
   }, []);
@@ -368,6 +399,35 @@ export const App = (): React.ReactElement => {
     []
   );
 
+  const refreshAccountState = React.useCallback(async (): Promise<void> => {
+    const client = clientRef.current;
+    if (!client) {
+      return;
+    }
+
+    try {
+      const snapshot = parseAccountSnapshot(
+        await client.request("account/read", { refreshToken: false })
+      );
+
+      setBootstrap((previous) =>
+        previous
+          ? {
+              ...previous,
+              authMode: snapshot.authMode,
+              requiresOpenaiAuth: snapshot.requiresOpenaiAuth
+            }
+          : previous
+      );
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Failed to refresh auth state"
+      );
+    }
+  }, []);
+
   const scheduleReconnect = React.useCallback((): void => {
     if (manualDisconnectRef.current || !pairingRef.current || reconnectTimerRef.current || isConnectingRef.current) {
       return;
@@ -424,6 +484,18 @@ export const App = (): React.ReactElement => {
         onBridgeMessage: (message) => {
           if (message.__bridge.type === "error") {
             setError(`[bridge] ${message.__bridge.message}`);
+            return;
+          }
+
+          if (message.__bridge.type === "authBrowserLaunch") {
+            if (message.__bridge.success) {
+              setStatus("Opened sign-in link in computer browser.");
+            } else {
+              setStatus("Could not open sign-in link automatically.");
+              if (message.__bridge.message) {
+                setError(`[bridge] ${message.__bridge.message}`);
+              }
+            }
           }
         },
         onNotification: (method, params) => {
@@ -433,6 +505,48 @@ export const App = (): React.ReactElement => {
           }
           if (method === "turn/completed") {
             setStatus("Turn completed.");
+          }
+          if (method === "account/login/completed") {
+            const loginResult = parseLoginCompletedNotification(params);
+            if (!loginResult) {
+              return;
+            }
+
+            if (!loginResult.success && loginResult.error) {
+              setError(loginResult.error);
+            } else {
+              setError(null);
+            }
+
+            setActiveLoginId(null);
+            setPendingAuthUrl(null);
+            setIsAuthSubmitting(false);
+            setStatus(
+              loginResult.success
+                ? "Authentication completed."
+                : "Authentication failed."
+            );
+            void refreshAccountState();
+          }
+          if (method === "account/updated") {
+            const record = asRecord(params);
+            const authMode =
+              typeof record?.authMode === "string"
+                ? record.authMode
+                : record?.authMode === null
+                  ? "none"
+                  : null;
+            if (authMode) {
+              setBootstrap((previous) =>
+                previous
+                  ? {
+                      ...previous,
+                      authMode,
+                      requiresOpenaiAuth: authMode !== "none"
+                    }
+                  : previous
+              );
+            }
           }
         },
         onServerRequest: ({ id, method, params }) => queueApprovalRequest({ id, method, params }),
@@ -467,6 +581,9 @@ export const App = (): React.ReactElement => {
       setStatus(`Connected via ${connection.endpointType}. Initializing...`);
       const snapshot = await initializeAndBootstrap(client);
       setBootstrap(snapshot);
+      setSelectedModelId(snapshot.models[0]?.id ?? null);
+      setActiveLoginId(null);
+      setPendingAuthUrl(null);
       setConnectionEndpoint(connection.endpointType);
       setConnectionLatencyMs(Math.max(1, Date.now() - startedAtMs));
       setStatus(`Connected via ${connection.endpointType}. App server ready.`);
@@ -478,7 +595,13 @@ export const App = (): React.ReactElement => {
       isConnectingRef.current = false;
       setIsLoading(false);
     }
-  }, [clearReconnectTimer, queueApprovalRequest, resolveOutstandingApprovals, scheduleReconnect]);
+  }, [
+    clearReconnectTimer,
+    queueApprovalRequest,
+    refreshAccountState,
+    resolveOutstandingApprovals,
+    scheduleReconnect
+  ]);
 
   React.useEffect(() => {
     connectInvokerRef.current = connectToBridge;
@@ -500,6 +623,9 @@ export const App = (): React.ReactElement => {
     setPendingApprovals([]);
     setConnectionEndpoint(null);
     setConnectionLatencyMs(null);
+    setActiveLoginId(null);
+    setPendingAuthUrl(null);
+    setIsAuthSubmitting(false);
     setStatus("Disconnected");
   }, [clearReconnectTimer, resolveOutstandingApprovals]);
 
@@ -511,6 +637,130 @@ export const App = (): React.ReactElement => {
     setError(null);
     setStatus("Pairing removed");
   }, [disconnectBridge]);
+
+  const interruptTurn = React.useCallback(async (): Promise<void> => {
+    const client = clientRef.current;
+    const threadId = sessionRef.current.activeThreadId;
+    const turnId = sessionRef.current.activeTurnId;
+
+    if (!client || !threadId || !turnId) {
+      setStatus("No active turn to interrupt.");
+      return;
+    }
+
+    try {
+      await client.request("turn/interrupt", { threadId, turnId });
+      setStatus("Interrupt requested.");
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(
+        () => undefined
+      );
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Failed to interrupt turn"
+      );
+      setStatus("Failed to interrupt turn");
+    }
+  }, []);
+
+  const startChatgptLogin = React.useCallback(async (): Promise<void> => {
+    const client = clientRef.current;
+    if (!client) {
+      return;
+    }
+
+    setIsAuthSubmitting(true);
+    setError(null);
+    setStatus("Starting ChatGPT login...");
+
+    try {
+      const result = parseChatgptLoginStartResult(
+        await client.request("account/login/start", { type: "chatgpt" })
+      );
+
+      if (!result) {
+        throw new Error("ChatGPT login did not return loginId/authUrl");
+      }
+
+      setActiveLoginId(result.loginId);
+      setPendingAuthUrl(result.authUrl);
+      setStatus("Finish sign-in in your computer browser.");
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Failed to start ChatGPT login"
+      );
+      setStatus("Failed to start ChatGPT login");
+      setIsAuthSubmitting(false);
+    }
+  }, []);
+
+  const submitApiKeyLogin = React.useCallback(async (): Promise<void> => {
+    const client = clientRef.current;
+    const apiKey = apiKeyInput.trim();
+    if (!client || !apiKey) {
+      return;
+    }
+
+    setIsAuthSubmitting(true);
+    setError(null);
+    setStatus("Submitting API key...");
+
+    try {
+      await client.request("account/login/start", { type: "apiKey", apiKey });
+      setApiKeyInput("");
+      setStatus("API key submitted. Waiting for completion...");
+      await refreshAccountState();
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "API key login failed"
+      );
+      setStatus("API key login failed");
+    } finally {
+      setIsAuthSubmitting(false);
+    }
+  }, [apiKeyInput, refreshAccountState]);
+
+  const cancelChatgptLogin = React.useCallback(async (): Promise<void> => {
+    const client = clientRef.current;
+    if (!client || !activeLoginId) {
+      return;
+    }
+
+    try {
+      await client.request("account/login/cancel", { loginId: activeLoginId });
+      setStatus("Login cancelled.");
+      setActiveLoginId(null);
+      setPendingAuthUrl(null);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Failed to cancel login"
+      );
+    }
+  }, [activeLoginId]);
+
+  const logoutAccount = React.useCallback(async (): Promise<void> => {
+    const client = clientRef.current;
+    if (!client) {
+      return;
+    }
+
+    try {
+      await client.request("account/logout");
+      setStatus("Logged out.");
+      await refreshAccountState();
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error ? caughtError.message : "Logout failed"
+      );
+    }
+  }, [refreshAccountState]);
 
   const refreshThreads = React.useCallback(async (): Promise<void> => {
     const client = clientRef.current;
@@ -547,7 +797,6 @@ export const App = (): React.ReactElement => {
       return;
     }
 
-    const preferredModel = bootstrap?.models[0]?.id ?? "gpt-5.2-codex";
     const cwd = pairing?.cwdHint;
 
     setPrompt("");
@@ -560,12 +809,17 @@ export const App = (): React.ReactElement => {
 
       if (!threadId) {
         const threadStartResult = asRecord(
-          await client.request("thread/start", {
-            model: preferredModel,
-            cwd,
-            approvalPolicy: "unlessTrusted",
-            sandbox: "workspaceWrite"
-          })
+          await client.request(
+            "thread/start",
+            buildThreadStartParams({
+              mode: composerMode,
+              networkAccess,
+              selectedModelId,
+              effortLevel,
+              reasoningMode,
+              cwd
+            })
+          )
         );
         const thread = asRecord(threadStartResult?.thread);
         threadId = typeof thread?.id === "string" ? thread.id : null;
@@ -577,11 +831,19 @@ export const App = (): React.ReactElement => {
         setSession((previous) => setActiveThreadId(previous, threadId as string));
       }
 
-      const turnStartResult = await client.request("turn/start", {
-        threadId,
-        input: [{ type: "text", text: promptText }],
-        cwd
-      });
+      const turnStartResult = await client.request(
+        "turn/start",
+        buildTurnStartParams({
+          threadId,
+          promptText,
+          mode: composerMode,
+          networkAccess,
+          selectedModelId,
+          effortLevel,
+          reasoningMode,
+          cwd
+        })
+      );
 
       setSession((previous) => applyTurnStartResult(previous, turnStartResult));
       setStatus(`Turn in progress (${composerMode}/${networkAccess}).`);
@@ -589,7 +851,15 @@ export const App = (): React.ReactElement => {
       setError(caughtError instanceof Error ? caughtError.message : "Failed to start turn");
       setStatus("Turn failed to start");
     }
-  }, [bootstrap, composerMode, networkAccess, pairing?.cwdHint, prompt]);
+  }, [
+    composerMode,
+    effortLevel,
+    networkAccess,
+    pairing?.cwdHint,
+    prompt,
+    reasoningMode,
+    selectedModelId
+  ]);
 
   const submitManualPayload = React.useCallback(async (): Promise<void> => {
     try {
@@ -654,6 +924,47 @@ export const App = (): React.ReactElement => {
         <View style={styles.chipRow}>
           <Chip theme={theme} label={`Mode: ${composerMode}`} selected={composerMode === "agent"} onPress={() => setComposerMode((value) => value === "agent" ? "chat" : "agent")} />
           <Chip theme={theme} label={`Network: ${networkAccess}`} selected={networkAccess === "on"} onPress={() => setNetworkAccess((value) => value === "on" ? "off" : "on")} />
+          <Chip
+            theme={theme}
+            label={`Model: ${selectedModelId ?? "auto"}`}
+            selected={Boolean(selectedModelId)}
+            onPress={() => {
+              const models = bootstrap?.models ?? [];
+              if (models.length === 0) {
+                return;
+              }
+
+              const currentIndex = models.findIndex((model) => model.id === selectedModelId);
+              const nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % models.length;
+              setSelectedModelId(models[nextIndex]?.id ?? null);
+            }}
+          />
+          <Chip
+            theme={theme}
+            label={`Effort: ${effortLevel}`}
+            selected={effortLevel === "high"}
+            onPress={() => {
+              setEffortLevel((value) =>
+                value === "low" ? "medium" : value === "medium" ? "high" : "low"
+              );
+            }}
+          />
+          <Chip
+            theme={theme}
+            label={`Reasoning: ${reasoningMode}`}
+            selected={reasoningMode === "raw"}
+            onPress={() => {
+              setReasoningMode((value) => (value === "summary" ? "raw" : "summary"));
+            }}
+          />
+          <Chip
+            theme={theme}
+            label={showToolCalls ? "Tool calls: on" : "Tool calls: off"}
+            selected={showToolCalls}
+            onPress={() => {
+              setShowToolCalls((value) => !value);
+            }}
+          />
           <Chip theme={theme} label={isRefreshingThreads ? "Refreshing..." : "Refresh Threads"} onPress={() => { void refreshThreads(); }} selected={false} />
         </View>
         <TextInput
@@ -695,12 +1006,15 @@ export const App = (): React.ReactElement => {
           <Typo theme={theme} variant="small" tone="muted">No transcript yet.</Typo>
         </View>
       ) : (
-        session.transcript.slice(-20).map((entry) => (
+        session.transcript
+          .filter((entry) => (showToolCalls ? true : entry.type !== "commandExecution"))
+          .slice(-20)
+          .map((entry) => (
           <IndexCard key={entry.id} theme={theme} accent={transcriptAccentByType[entry.type]}>
             <Typo theme={theme} variant="micro" tone="paper" weight="semibold">{entry.title}{entry.status ? ` (${entry.status})` : ""}</Typo>
             <Typo theme={theme} variant={entry.type === "commandExecution" ? "mono" : "small"} tone="paper" style={entry.type === "commandExecution" ? styles.monoRow : undefined}>{entry.text || "(no content)"}</Typo>
           </IndexCard>
-        ))
+          ))
       )}
     </View>
   );
@@ -771,6 +1085,70 @@ export const App = (): React.ReactElement => {
         </View>
       </IndexCard>
 
+      <IndexCard theme={theme} accent="cyan">
+        <Typo theme={theme} variant="heading" tone="paper" weight="semibold">Authentication</Typo>
+        <Typo theme={theme} variant="small" tone="paper">
+          Current mode: {bootstrap?.authMode ?? "unknown"}
+        </Typo>
+        <View style={styles.actionRow}>
+          <ActionButton
+            theme={theme}
+            label={isAuthSubmitting ? "Starting..." : "Sign in ChatGPT"}
+            onPress={() => {
+              void startChatgptLogin();
+            }}
+            disabled={!connected || isAuthSubmitting}
+            tone="acid"
+          />
+          <ActionButton
+            theme={theme}
+            label="Cancel Login"
+            onPress={() => {
+              void cancelChatgptLogin();
+            }}
+            disabled={!activeLoginId || isAuthSubmitting}
+            tone="outline"
+          />
+          <ActionButton
+            theme={theme}
+            label="Logout"
+            onPress={() => {
+              void logoutAccount();
+            }}
+            disabled={!connected || isAuthSubmitting}
+            tone="danger"
+          />
+        </View>
+        <TextInput
+          value={apiKeyInput}
+          onChangeText={setApiKeyInput}
+          placeholder="Paste OpenAI API key"
+          placeholderTextColor={theme.mode === "carbon" ? "#5E5F63" : "#868079"}
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry
+          style={[
+            styles.input,
+            styles.shortInput,
+            { backgroundColor: theme.cardAlt, borderColor: theme.cardHairline, color: theme.cardText }
+          ]}
+        />
+        <ActionButton
+          theme={theme}
+          label={isAuthSubmitting ? "Submitting..." : "Use API Key"}
+          onPress={() => {
+            void submitApiKeyLogin();
+          }}
+          disabled={!connected || isAuthSubmitting || apiKeyInput.trim().length === 0}
+          tone="outline"
+        />
+        {pendingAuthUrl ? (
+          <Typo theme={theme} variant="micro" tone="paper">
+            Open on computer browser: {pendingAuthUrl}
+          </Typo>
+        ) : null}
+      </IndexCard>
+
       <IndexCard theme={theme} accent="acid">
         <Typo theme={theme} variant="heading" tone="paper" weight="semibold">Diagnostics</Typo>
         <Typo theme={theme} variant="micro" tone="paper">Auth mode: {bootstrap?.authMode ?? "unknown"}</Typo>
@@ -790,7 +1168,15 @@ export const App = (): React.ReactElement => {
               <Typo theme={theme} variant="micro" tone="muted">{getConnectionLabel(connectionEndpoint, connectionLatencyMs)}</Typo>
             </View>
           </Pressable>
-          <ActionButton theme={theme} label={connected ? "Interrupt" : "Idle"} onPress={disconnectBridge} disabled={!connected} tone={connected ? "danger" : "panel"} />
+          <ActionButton
+            theme={theme}
+            label={session.activeTurnId ? "Interrupt" : "Idle"}
+            onPress={() => {
+              void interruptTurn();
+            }}
+            disabled={!session.activeTurnId}
+            tone={session.activeTurnId ? "danger" : "panel"}
+          />
         </View>
 
         <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.scrollContent}>

@@ -7,6 +7,7 @@ export type BridgeArgs = {
   name: string;
   cwd: string;
   codexBin: string;
+  autoOpenAuthUrl: boolean;
 };
 
 const parseFlag = (argv: string[], flag: string): string | undefined => {
@@ -31,6 +32,8 @@ const parsePort = (value: string | undefined): number => {
   return port;
 };
 
+const hasFlag = (argv: string[], flag: string): boolean => argv.includes(flag);
+
 const parseToken = (value: string | undefined): string => {
   if (value) {
     return value;
@@ -45,6 +48,7 @@ export const parseBridgeArgs = (argv: string[], cwd: string): BridgeArgs => {
   const token = parseToken(parseFlag(argv, "--token"));
   const name = parseFlag(argv, "--name") ?? "Codex Mobile Bridge";
   const codexBin = parseFlag(argv, "--codex-bin") ?? "codex";
+  const autoOpenAuthUrl = !hasFlag(argv, "--no-open-auth-url");
 
   return {
     host,
@@ -52,6 +56,7 @@ export const parseBridgeArgs = (argv: string[], cwd: string): BridgeArgs => {
     token,
     name,
     cwd,
-    codexBin
+    codexBin,
+    autoOpenAuthUrl
   };
 };

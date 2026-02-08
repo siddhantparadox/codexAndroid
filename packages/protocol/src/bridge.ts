@@ -28,11 +28,19 @@ const bridgeErrorPayloadSchema = z.object({
   message: z.string().min(1)
 });
 
+const bridgeAuthBrowserLaunchPayloadSchema = z.object({
+  type: z.literal("authBrowserLaunch"),
+  url: z.string().url(),
+  success: z.boolean(),
+  message: z.string().min(1).optional()
+});
+
 export const bridgePayloadSchema = z.discriminatedUnion("type", [
   bridgeHelloPayloadSchema,
   bridgePingPayloadSchema,
   bridgePongPayloadSchema,
-  bridgeErrorPayloadSchema
+  bridgeErrorPayloadSchema,
+  bridgeAuthBrowserLaunchPayloadSchema
 ]);
 
 export const bridgeControlMessageSchema = z.object({

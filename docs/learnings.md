@@ -28,5 +28,10 @@
 - Approval interactions feel safer when decision feedback is immediate and multimodal (visual stamp + haptic), even before backend completion is visible.
 - Slight card tilt variation is enough to create an index-card identity; large transforms hurt readability on small screens.
 - Reduced-motion support should be wired before adding signature animation so product identity does not conflict with accessibility requirements.
+- Mapping UI toggles to request payload builders (`thread/start` + `turn/start`) is more reliable than in-component ad-hoc payload assembly.
+- Auth notifications (`account/login/completed`, `account/updated`) should immediately refresh account snapshot, otherwise UI can drift from actual server auth state.
+- A real interrupt action must call `turn/interrupt`; using disconnect as a proxy is behaviorally incorrect and loses session continuity.
+- ChatGPT login UX is materially smoother when the bridge auto-opens `authUrl` locally; requiring manual copy/paste between phone and computer adds avoidable failure points.
+- Bridge control channels are useful for UX feedback loops beyond errors (`authBrowserLaunch` success/failure), not just transport diagnostics.
 
 Add new entries with date, context, and impact.

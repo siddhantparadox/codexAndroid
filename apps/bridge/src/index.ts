@@ -10,6 +10,7 @@ import {
 import { WebSocketServer } from "ws";
 import type WebSocket from "ws";
 import { parseBridgeArgs } from "./args.js";
+import { extractChatgptAuthUrl, openExternalUrl } from "./auth-url.js";
 import { resolveBridgeEndpoints } from "./network.js";
 import { pairingPayloadToQrText, printPairingQr } from "./pairing-qr.js";
 
@@ -52,6 +53,25 @@ const sendBridgeError = (ws: WebSocket, code: string, message: string): void => 
     __bridge: {
       type: "error",
       code,
+      message
+    }
+  });
+};
+
+const sendAuthBrowserLaunchStatus = (
+  success: boolean,
+  url: string,
+  message?: string
+): void => {
+  if (!activeClient || activeClient.readyState !== activeClient.OPEN) {
+    return;
+  }
+
+  sendBridge(activeClient, {
+    __bridge: {
+      type: "authBrowserLaunch",
+      success,
+      url,
       message
     }
   });
@@ -141,6 +161,33 @@ wss.on("connection", (ws) => {
 });
 
 appServerLines.on("line", (line) => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line) as unknown;
+  } catch {
+    parsed = null;
+  }
+
+  const authUrl = extractChatgptAuthUrl(parsed);
+  if (authUrl && args.autoOpenAuthUrl) {
+    const opened = openExternalUrl(authUrl);
+    if (opened) {
+      console.log("[bridge] opened ChatGPT login URL in local browser");
+      sendAuthBrowserLaunchStatus(
+        true,
+        authUrl,
+        "Opened login URL in local browser"
+      );
+    } else {
+      console.warn("[bridge] unable to open ChatGPT login URL automatically");
+      sendAuthBrowserLaunchStatus(
+        false,
+        authUrl,
+        "Unable to open login URL automatically"
+      );
+    }
+  }
+
   if (!activeClient || activeClient.readyState !== activeClient.OPEN) {
     return;
   }

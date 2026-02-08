@@ -28,6 +28,9 @@
 - Use a distinct monospace style for command/log content so approvals and transcript output remain scannable under high update frequency.
 - Keep approval decisions high-friction and explicit (approve/decline only), with immediate local feedback and clear state transition messaging.
 - Respect reduced motion in every signature animation path.
+- Keep request payload shaping in pure helper modules with tests whenever UI toggles influence execution behavior.
+- Treat auth lifecycle notifications as state transitions to reconcile immediately, rather than relying on periodic reads.
+- For ChatGPT auth in app-server integrations, prefer bridge-side local browser launch of returned `authUrl` and provide a CLI opt-out for non-interactive/headless runs.
 
 ## Product constraints (v1)
 

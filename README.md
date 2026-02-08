@@ -49,6 +49,10 @@ Use exactly 3 terminals from `D:\projects\codexAndroid`.
 ```powershell
 pnpm dev:bridge
 ```
+If you are on a headless machine or do not want browser auto-launch during ChatGPT auth, run:
+```powershell
+pnpm --filter @codex-mobile/bridge dev -- --no-open-auth-url
+```
 
 2. Terminal 2: run mobile bundler
 ```powershell
