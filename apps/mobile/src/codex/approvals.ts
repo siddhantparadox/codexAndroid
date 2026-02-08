@@ -16,6 +16,9 @@ export type PendingApproval = {
   command?: string;
   cwd?: string;
   parsedCmdText?: string;
+  changeCount?: number;
+  changedPaths?: string[];
+  diffText?: string;
 };
 
 const asRecord = (value: unknown): Record<string, unknown> | null => {
@@ -66,6 +69,55 @@ const parsedCommandToText = (value: unknown): string | undefined => {
   return [executable, ...args].filter(Boolean).join(" ");
 };
 
+const diffValueToText = (value: unknown): string | undefined => {
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value;
+  }
+
+  const record = asRecord(value);
+  if (!record) {
+    return undefined;
+  }
+
+  const keys = ["unified", "unifiedDiff", "patch", "text"];
+  for (const key of keys) {
+    const candidate = asNonEmptyString(record[key]);
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+};
+
+const parseFileChangeContext = (
+  params: Record<string, unknown> | null
+): Pick<PendingApproval, "changeCount" | "changedPaths" | "diffText"> => {
+  const changes = Array.isArray(params?.changes)
+    ? params.changes
+        .map((entry) => asRecord(entry))
+        .filter((entry): entry is Record<string, unknown> => Boolean(entry))
+    : [];
+
+  const changedPaths = changes
+    .map((change) => asNonEmptyString(change.path))
+    .filter((path): path is string => Boolean(path));
+
+  const inlineDiffs = changes
+    .map((change) => diffValueToText(change.diff))
+    .filter((diff): diff is string => Boolean(diff));
+
+  const diffText =
+    diffValueToText(params?.diff) ??
+    (inlineDiffs.length > 0 ? inlineDiffs.join("\n\n") : undefined);
+
+  return {
+    changeCount: changes.length > 0 ? changes.length : undefined,
+    changedPaths: changedPaths.length > 0 ? changedPaths : undefined,
+    diffText
+  };
+};
+
 export const parseApprovalRequest = (request: {
   id: number;
   method: string;
@@ -94,6 +146,7 @@ export const parseApprovalRequest = (request: {
     risk: asNonEmptyString(params?.risk),
     command: asNonEmptyString(params?.command),
     cwd: asNonEmptyString(params?.cwd),
-    parsedCmdText: parsedCommandToText(params?.parsedCmd)
+    parsedCmdText: parsedCommandToText(params?.parsedCmd),
+    ...parseFileChangeContext(params)
   };
 };

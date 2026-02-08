@@ -45,6 +45,7 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
   - explicit accept/decline responses from app UI
   - optional command `acceptSettings` JSON passthrough on accept decisions
   - approval cards now show thread/turn ids and latest transcript item context by `itemId`
+  - approval cards and bottom-sheet now include explicit risk summaries (`LOW/MEDIUM/HIGH`) and available diff preview context before decision
 - Mobile auth workflow now includes:
   - `account/login/start` via ChatGPT flow
   - `account/login/start` via API key
@@ -77,6 +78,12 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
   - Carbon/Parchment theme tokens
   - Fraunces + Commissioner + Azeret Mono font system
   - reusable primitives (`AppBackground`, `Typo`, `IndexCard`, `Chip`, `Stamp`, `PierreDiffCard`)
+- Mobile runtime preferences are now persisted across app restarts:
+  - active screen (`threads`, `approvals`, `settings`)
+  - appearance (`themeName`, motion override)
+  - composer defaults (`mode`, `network`, `effort`, `reasoning`)
+  - model preference (`selectedModelId`) with runtime validation against available models
+  - operator view toggles (`tool calls`, `archived threads`)
 - Approval UX now includes a visible stamp animation moment on approve/decline decisions
 - RPC request timeout default increased to 30s to reduce transient timeout failures in slower runtime conditions
 - Interrupt action now calls `turn/interrupt` for active turn/thread instead of disconnecting the bridge socket

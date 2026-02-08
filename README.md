@@ -136,9 +136,11 @@ Run these in order:
 4. Approvals UI
    1. Trigger a turn that requests approval.
    2. Confirm `Pending Approvals` card appears with thread/turn/item ids.
-   3. Test `Decline`.
-   4. Trigger again and test `Accept`.
-   5. For command approvals, optionally provide valid JSON in `acceptSettings` and accept.
+   3. Confirm risk summary (`LOW/MEDIUM/HIGH`) and reason lines are visible.
+   4. For file approvals, confirm changed-file list and diff preview (when available) are visible.
+   5. Test `Decline`.
+   6. Trigger again and test `Accept`.
+   7. For command approvals, optionally provide valid JSON in `acceptSettings` and accept.
 
 5. Reconnect behavior
    1. While connected, stop bridge (Ctrl+C in Terminal 1).
@@ -149,6 +151,11 @@ Run these in order:
    1. Keep app connected, then temporarily block connectivity (for example disable Wi-Fi on phone for ~10-15s).
    2. Confirm diagnostics shows heartbeat degraded and app attempts reconnect automatically.
    3. Restore connectivity and confirm health returns to connected with fresh latency samples.
+
+7. Preference persistence
+   1. Change active screen, theme, motion override, composer toggles, and selected model in the app.
+   2. Fully close Expo Go/app process and reopen Codex Mobile.
+   3. Confirm the modified preferences are restored.
 
 ### Quick troubleshooting
 

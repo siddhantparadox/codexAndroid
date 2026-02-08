@@ -43,6 +43,12 @@
 - Normalize discovered hostnames (for example trailing-dot DNS names) before serializing pairing endpoints.
 - Treat bridge heartbeat (`ping`/`pong`) as an ongoing health contract: sample latency, surface degraded state on misses, and trigger controlled reconnect after bounded consecutive timeouts.
 - Keep heartbeat logic isolated in a pure module with tests so connection-policy tuning does not require editing UI components directly.
+- Persist non-secret runtime UX preferences (theme, motion, composer defaults, view toggles) as one typed blob with safe fallback defaults.
+- Gate preference writes behind a hydration-complete flag to prevent startup races that overwrite saved user choices.
+- When persisting model preference, always reconcile the stored id with the latest `model/list` output before use in turn/thread payloads.
+- Persist bottom-tab/active-screen context with the same preference lifecycle, but keep workflow-critical runtime overrides (for example pending approvals) authoritative.
+- For approval UX, always show thread/turn/item identifiers plus a concise risk explanation before exposing accept/decline actions.
+- Prefer diff-first transparency for file approvals: use request-level per-file diffs when present and fall back to aggregated `turn/diff/updated` context.
 
 ## Product constraints (v1)
 

@@ -125,3 +125,27 @@
 - Decision: Start a mobile-side heartbeat loop over bridge control messages (`ping`/`pong`) once app-server bootstrap succeeds.
 - Why: Socket-open state alone does not guarantee a healthy path; half-open/stalled links need deterministic detection.
 - Consequence: Mobile now updates latency from heartbeat samples, marks health degraded on heartbeat misses, and closes the socket to trigger reconnect after repeated misses.
+
+## 2026-02-08 - Persist runtime UX/composer preferences in device storage
+
+- Decision: Persist non-secret user runtime preferences in mobile secure storage and hydrate them on app startup.
+- Why: Re-entering theme/motion and composer defaults each session creates avoidable friction in a mobile-first workflow.
+- Consequence: App startup now restores theme, motion override, mode/network/effort/reasoning defaults, and UI view toggles before active use.
+
+## 2026-02-08 - Persist selected model id with safe fallback on bootstrap
+
+- Decision: Save the user-selected model id in preferences and resolve it against each fresh `model/list` snapshot.
+- Why: Model selection should remain stable across restarts, but stale ids must not break turn-start payloads.
+- Consequence: Mobile now keeps selection when still available and falls back to the first available model when not.
+
+## 2026-02-08 - Persist active screen context between sessions
+
+- Decision: Store and restore the last active bottom-tab screen in mobile preferences.
+- Why: Mobile workflows are often interrupted; reopening into the last active context reduces navigation friction.
+- Consequence: App now hydrates `threads`/`approvals`/`settings` from storage while approval events can still override screen to `approvals` when needed.
+
+## 2026-02-08 - Require explicit risk summary + diff context in approval UX
+
+- Decision: Compute and render a deterministic risk summary for each pending approval and show the best available diff context before accept/decline.
+- Why: Approvals are high-consequence decisions and need clear impact framing on mobile screens.
+- Consequence: Approval UI now surfaces risk level and reasons, thread/turn/item metadata, changed files, and Pierre diff previews when available.

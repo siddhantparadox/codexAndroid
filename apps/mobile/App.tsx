@@ -34,6 +34,7 @@ import {
   type ApprovalRequestMethod,
   type PendingApproval
 } from "./src/codex/approvals";
+import { buildApprovalRiskSummary } from "./src/codex/approval-insights";
 import {
   buildApprovalResponse,
   type ApprovalDecision,
@@ -50,6 +51,7 @@ import {
   type CodexSessionState,
   type TranscriptItem
 } from "./src/codex/session";
+import { resolveSelectedModelId } from "./src/codex/model-selection";
 import {
   parseThreadListPageResponse,
   type ThreadSummary
@@ -80,6 +82,10 @@ import {
   loadPersistedPairing,
   persistPairing
 } from "./src/pairing/secure-store";
+import {
+  loadPersistedPreferences,
+  persistPreferences
+} from "./src/preferences/secure-store";
 import { fontFamilies, useAppFonts } from "./src/theme/fonts";
 import {
   carbonTheme,
@@ -177,6 +183,9 @@ const mergeThreadsById = (
     .filter((entry): entry is ThreadSummary => Boolean(entry));
 };
 
+const isUnifiedDiffText = (value: string): boolean =>
+  /\bdiff --git\b/.test(value) || /^@@\s+-\d+/m.test(value);
+
 const ActionButton = ({
   theme,
   label,
@@ -245,6 +254,7 @@ export const App = (): React.ReactElement => {
   const [reasoningMode, setReasoningMode] = React.useState<ReasoningMode>("summary");
   const [showToolCalls, setShowToolCalls] = React.useState(true);
   const [showArchivedThreads, setShowArchivedThreads] = React.useState(false);
+  const [hasHydratedPreferences, setHasHydratedPreferences] = React.useState(false);
   const [selectedModelId, setSelectedModelId] = React.useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = React.useState("");
   const [activeLoginId, setActiveLoginId] = React.useState<string | null>(null);
@@ -300,6 +310,24 @@ export const App = (): React.ReactElement => {
           ? theme.amber
           : theme.danger;
 
+  const getApprovalItemContext = React.useCallback(
+    (approval: PendingApproval): { itemText?: string; diffText?: string } => {
+      const itemText = session.transcript.find((item) => item.id === approval.itemId)?.text;
+      const turnDiffText = session.transcript.find(
+        (item) => item.id === `diff-${approval.turnId}` && item.type === "diff"
+      )?.text;
+
+      const candidateDiff =
+        approval.diffText ?? turnDiffText ?? (itemText && isUnifiedDiffText(itemText) ? itemText : undefined);
+
+      return {
+        itemText: itemText && itemText.length > 0 ? itemText : undefined,
+        diffText: candidateDiff && candidateDiff.length > 0 ? candidateDiff : undefined
+      };
+    },
+    [session.transcript]
+  );
+
   React.useEffect(() => {
     sessionRef.current = session;
   }, [session]);
@@ -315,13 +343,15 @@ export const App = (): React.ReactElement => {
   }, [pendingApprovals.length]);
 
   React.useEffect(() => {
-    if (!bootstrap?.models.length) {
+    if (!bootstrap) {
       setSelectedModelId(null);
       return;
     }
 
-    setSelectedModelId((previous) => previous ?? bootstrap.models[0].id);
-  }, [bootstrap?.models]);
+    setSelectedModelId((previous) =>
+      resolveSelectedModelId(bootstrap.models, previous)
+    );
+  }, [bootstrap]);
 
   React.useEffect(() => {
     const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", (enabled) => {
@@ -335,10 +365,29 @@ export const App = (): React.ReactElement => {
 
   React.useEffect(() => {
     const load = async (): Promise<void> => {
-      const stored = await loadPersistedPairing();
-      if (stored) {
-        setPairing(stored);
-        setStatus("Pairing found. Ready to connect.");
+      try {
+        const [storedPairing, storedPreferences] = await Promise.all([
+          loadPersistedPairing(),
+          loadPersistedPreferences()
+        ]);
+
+        if (storedPairing) {
+          setPairing(storedPairing);
+          setStatus("Pairing found. Ready to connect.");
+        }
+
+        setActiveScreen(storedPreferences.activeScreen);
+        setThemeName(storedPreferences.themeName);
+        setReducedMotionOverride(storedPreferences.reducedMotionOverride);
+        setComposerMode(storedPreferences.composerMode);
+        setNetworkAccess(storedPreferences.networkAccess);
+        setEffortLevel(storedPreferences.effortLevel);
+        setReasoningMode(storedPreferences.reasoningMode);
+        setSelectedModelId(storedPreferences.selectedModelId);
+        setShowToolCalls(storedPreferences.showToolCalls);
+        setShowArchivedThreads(storedPreferences.showArchivedThreads);
+      } finally {
+        setHasHydratedPreferences(true);
       }
     };
 
@@ -366,6 +415,37 @@ export const App = (): React.ReactElement => {
       previousSocket?.close();
     };
   }, []);
+
+  React.useEffect(() => {
+    if (!hasHydratedPreferences) {
+      return;
+    }
+
+    void persistPreferences({
+      activeScreen,
+      themeName,
+      reducedMotionOverride,
+      composerMode,
+      networkAccess,
+      effortLevel,
+      reasoningMode,
+      selectedModelId,
+      showToolCalls,
+      showArchivedThreads
+    }).catch(() => undefined);
+  }, [
+    activeScreen,
+    composerMode,
+    effortLevel,
+    hasHydratedPreferences,
+    networkAccess,
+    reasoningMode,
+    reducedMotionOverride,
+    selectedModelId,
+    showArchivedThreads,
+    showToolCalls,
+    themeName
+  ]);
 
   const applyPairing = React.useCallback(async (raw: string): Promise<void> => {
     const parsed = parsePairingQrPayload(raw);
@@ -736,7 +816,9 @@ export const App = (): React.ReactElement => {
       const latencyMs =
         successfulAttempt?.durationMs ?? Math.max(1, Date.now() - startedAtMs);
       setBootstrap(snapshot);
-      setSelectedModelId(snapshot.models[0]?.id ?? null);
+      setSelectedModelId((previous) =>
+        resolveSelectedModelId(snapshot.models, previous)
+      );
       setActiveLoginId(null);
       setPendingAuthUrl(null);
       setConnectionEndpoint(connection.endpointType);
@@ -1567,13 +1649,121 @@ export const App = (): React.ReactElement => {
       ) : (
         pendingApprovals.map((approval) => {
           const stamp = stampByRequestId[approval.requestId];
+          const context = getApprovalItemContext(approval);
+          const riskSummary = buildApprovalRiskSummary(approval, context);
+          const riskColor =
+            riskSummary.level === "high"
+              ? theme.danger
+              : riskSummary.level === "medium"
+                ? theme.amber
+                : theme.acid;
+          const requestLabel =
+            approval.method === COMMAND_APPROVAL_METHOD
+              ? "Command execution"
+              : "File change";
+          const primaryText =
+            approval.command ??
+            approval.parsedCmdText ??
+            approval.reason ??
+            context.itemText ??
+            "";
           return (
             <View key={approval.requestId}>
               <IndexCard theme={theme} accent="amber">
-                <Typo theme={theme} variant="heading" tone="paper" weight="semibold">{approval.method === COMMAND_APPROVAL_METHOD ? "Command execution" : "File change"}</Typo>
-                <Typo theme={theme} variant="mono" tone="paper">Item: {approval.itemId}</Typo>
+                <Typo theme={theme} variant="heading" tone="paper" weight="semibold">
+                  {requestLabel}
+                </Typo>
+                <View
+                  style={[
+                    styles.approvalRiskBlock,
+                    {
+                      borderColor: riskColor,
+                      backgroundColor: theme.cardAlt
+                    }
+                  ]}
+                >
+                  <Typo
+                    theme={theme}
+                    variant="micro"
+                    tone="paper"
+                    weight="semibold"
+                    style={{ color: riskColor }}
+                  >
+                    {riskSummary.label}
+                  </Typo>
+                  {riskSummary.reasons.slice(0, 3).map((reason, index) => (
+                    <Typo
+                      key={`${approval.requestId}-risk-${index}`}
+                      theme={theme}
+                      variant="micro"
+                      tone="paper"
+                    >
+                      - {reason}
+                    </Typo>
+                  ))}
+                </View>
+                <View
+                  style={[
+                    styles.approvalMetaBlock,
+                    {
+                      borderColor: theme.cardHairline,
+                      backgroundColor: theme.cardAlt
+                    }
+                  ]}
+                >
+                  <Typo theme={theme} variant="mono" tone="paper">
+                    Thread: {approval.threadId}
+                  </Typo>
+                  <Typo theme={theme} variant="mono" tone="paper">
+                    Turn: {approval.turnId}
+                  </Typo>
+                  <Typo theme={theme} variant="mono" tone="paper">
+                    Item: {approval.itemId}
+                  </Typo>
+                </View>
                 {approval.cwd ? <Typo theme={theme} variant="mono" tone="paper">cwd: {approval.cwd}</Typo> : null}
-                <Typo theme={theme} variant="small" tone="paper">{clip(approval.command ?? approval.parsedCmdText ?? approval.reason ?? "", 280)}</Typo>
+                {primaryText ? (
+                  <Typo theme={theme} variant="small" tone="paper">
+                    {clip(primaryText, 320)}
+                  </Typo>
+                ) : null}
+                {approval.changedPaths && approval.changedPaths.length > 0 ? (
+                  <View
+                    style={[
+                      styles.approvalMetaBlock,
+                      {
+                        borderColor: theme.cardHairline,
+                        backgroundColor: theme.cardAlt
+                      }
+                    ]}
+                  >
+                    <Typo theme={theme} variant="micro" tone="paper" weight="semibold">
+                      Files ({approval.changeCount ?? approval.changedPaths.length})
+                    </Typo>
+                    {approval.changedPaths.slice(0, 4).map((path) => (
+                      <Typo key={`${approval.requestId}-${path}`} theme={theme} variant="micro" tone="paper">
+                        - {path}
+                      </Typo>
+                    ))}
+                    {approval.changedPaths.length > 4 ? (
+                      <Typo theme={theme} variant="micro" tone="paper">
+                        - +{approval.changedPaths.length - 4} more files
+                      </Typo>
+                    ) : null}
+                  </View>
+                ) : null}
+                {context.diffText ? (
+                  <PierreDiffCard
+                    theme={theme}
+                    title="Approval Diff Preview"
+                    status={riskSummary.label}
+                    diff={context.diffText}
+                  />
+                ) : (
+                  <Typo theme={theme} variant="micro" tone="paper">
+                    Diff preview not available yet.
+                  </Typo>
+                )}
                 {approval.method === COMMAND_APPROVAL_METHOD ? (
                   <TextInput
                     value={commandAcceptSettingsJson}
@@ -1809,29 +1999,169 @@ export const App = (): React.ReactElement => {
         {activeApproval ? (
           <View style={styles.sheetBackdrop}>
             <View style={[styles.approvalSheet, { borderColor: theme.cardHairline, backgroundColor: theme.card }]}>
-              <Typo theme={theme} variant="heading" tone="paper" weight="semibold">
-                Approval Required
-              </Typo>
-              <Typo theme={theme} variant="small" tone="paper">
-                {activeApproval.method === COMMAND_APPROVAL_METHOD ? "Command execution request" : "File change request"}
-              </Typo>
-              <Typo theme={theme} variant="mono" tone="paper">
-                {clip(activeApproval.command ?? activeApproval.parsedCmdText ?? activeApproval.itemId, 180)}
-              </Typo>
-              <View style={styles.actionRow}>
-                <ActionButton
-                  theme={theme}
-                  label="Approve"
-                  tone="acid"
-                  onPress={() => respondToApproval(activeApproval.requestId, activeApproval.method, "accept")}
-                />
-                <ActionButton
-                  theme={theme}
-                  label="Decline"
-                  tone="danger"
-                  onPress={() => respondToApproval(activeApproval.requestId, activeApproval.method, "decline")}
-                />
-              </View>
+              {(() => {
+                const context = getApprovalItemContext(activeApproval);
+                const riskSummary = buildApprovalRiskSummary(activeApproval, context);
+                const riskColor =
+                  riskSummary.level === "high"
+                    ? theme.danger
+                    : riskSummary.level === "medium"
+                      ? theme.amber
+                      : theme.acid;
+                const requestLabel =
+                  activeApproval.method === COMMAND_APPROVAL_METHOD
+                    ? "Command execution request"
+                    : "File change request";
+                const primaryText =
+                  activeApproval.command ??
+                  activeApproval.parsedCmdText ??
+                  activeApproval.reason ??
+                  context.itemText ??
+                  activeApproval.itemId;
+
+                return (
+                  <>
+                    <ScrollView
+                      style={styles.approvalSheetScroll}
+                      contentContainerStyle={styles.approvalSheetScrollContent}
+                      showsVerticalScrollIndicator={false}
+                    >
+                      <Typo theme={theme} variant="heading" tone="paper" weight="semibold">
+                        Approval Required
+                      </Typo>
+                      <Typo theme={theme} variant="small" tone="paper">
+                        {requestLabel}
+                      </Typo>
+                      <View
+                        style={[
+                          styles.approvalRiskBlock,
+                          {
+                            borderColor: riskColor,
+                            backgroundColor: theme.cardAlt
+                          }
+                        ]}
+                      >
+                        <Typo
+                          theme={theme}
+                          variant="micro"
+                          tone="paper"
+                          weight="semibold"
+                          style={{ color: riskColor }}
+                        >
+                          {riskSummary.label}
+                        </Typo>
+                        {riskSummary.reasons.slice(0, 3).map((reason, index) => (
+                          <Typo
+                            key={`${activeApproval.requestId}-sheet-risk-${index}`}
+                            theme={theme}
+                            variant="micro"
+                            tone="paper"
+                          >
+                            - {reason}
+                          </Typo>
+                        ))}
+                      </View>
+                      <View
+                        style={[
+                          styles.approvalMetaBlock,
+                          {
+                            borderColor: theme.cardHairline,
+                            backgroundColor: theme.cardAlt
+                          }
+                        ]}
+                      >
+                        <Typo theme={theme} variant="mono" tone="paper">
+                          Thread: {activeApproval.threadId}
+                        </Typo>
+                        <Typo theme={theme} variant="mono" tone="paper">
+                          Turn: {activeApproval.turnId}
+                        </Typo>
+                        <Typo theme={theme} variant="mono" tone="paper">
+                          Item: {activeApproval.itemId}
+                        </Typo>
+                        {activeApproval.cwd ? (
+                          <Typo theme={theme} variant="mono" tone="paper">
+                            cwd: {activeApproval.cwd}
+                          </Typo>
+                        ) : null}
+                      </View>
+                      <View
+                        style={[
+                          styles.approvalMetaBlock,
+                          {
+                            borderColor: theme.cardHairline,
+                            backgroundColor: theme.cardAlt
+                          }
+                        ]}
+                      >
+                          <Typo theme={theme} variant="small" tone="paper">
+                            {clip(primaryText, 320)}
+                          </Typo>
+                      </View>
+                      {activeApproval.changedPaths && activeApproval.changedPaths.length > 0 ? (
+                        <View
+                          style={[
+                            styles.approvalMetaBlock,
+                            {
+                              borderColor: theme.cardHairline,
+                              backgroundColor: theme.cardAlt
+                            }
+                          ]}
+                        >
+                          <Typo theme={theme} variant="micro" tone="paper" weight="semibold">
+                            Files ({activeApproval.changeCount ?? activeApproval.changedPaths.length})
+                          </Typo>
+                          {activeApproval.changedPaths.slice(0, 5).map((path) => (
+                            <Typo
+                              key={`${activeApproval.requestId}-sheet-file-${path}`}
+                              theme={theme}
+                              variant="micro"
+                              tone="paper"
+                            >
+                              - {path}
+                            </Typo>
+                          ))}
+                          {activeApproval.changedPaths.length > 5 ? (
+                            <Typo theme={theme} variant="micro" tone="paper">
+                              - +{activeApproval.changedPaths.length - 5} more files
+                            </Typo>
+                          ) : null}
+                        </View>
+                      ) : null}
+                      {context.diffText ? (
+                        <PierreDiffCard
+                          theme={theme}
+                          title="Approval Diff Preview"
+                          status={riskSummary.label}
+                          diff={context.diffText}
+                        />
+                      ) : (
+                        <Typo theme={theme} variant="micro" tone="paper">
+                          Diff preview not available yet.
+                        </Typo>
+                      )}
+                    </ScrollView>
+                    <View style={styles.actionRow}>
+                      <ActionButton
+                        theme={theme}
+                        label="Approve"
+                        tone="acid"
+                        onPress={() =>
+                          respondToApproval(activeApproval.requestId, activeApproval.method, "accept")
+                        }
+                      />
+                      <ActionButton
+                        theme={theme}
+                        label="Decline"
+                        tone="danger"
+                        onPress={() =>
+                          respondToApproval(activeApproval.requestId, activeApproval.method, "decline")
+                        }
+                      />
+                    </View>
+                  </>
+                );
+              })()}
               <Stamp
                 theme={theme}
                 kind={stampByRequestId[activeApproval.requestId]?.kind ?? "approved"}
@@ -2033,6 +2363,27 @@ const styles = StyleSheet.create({
     borderRadius: radii.card,
     padding: space.x5,
     gap: space.x2
+  },
+  approvalSheetScroll: {
+    maxHeight: 420
+  },
+  approvalSheetScrollContent: {
+    gap: space.x2,
+    paddingBottom: space.x2
+  },
+  approvalRiskBlock: {
+    borderWidth: 1,
+    borderRadius: radii.cardInner,
+    paddingHorizontal: space.x3,
+    paddingVertical: space.x2,
+    gap: 2
+  },
+  approvalMetaBlock: {
+    borderWidth: 1,
+    borderRadius: radii.cardInner,
+    paddingHorizontal: space.x3,
+    paddingVertical: space.x2,
+    gap: 2
   },
   scannerBox: {
     minHeight: 280,

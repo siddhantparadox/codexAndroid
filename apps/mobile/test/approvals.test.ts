@@ -36,7 +36,18 @@ describe("parseApprovalRequest", () => {
         itemId: "change_1",
         threadId: "thread_2",
         turnId: "turn_2",
-        reason: "edits multiple files"
+        reason: "edits multiple files",
+        changes: [
+          {
+            path: "apps/mobile/App.tsx",
+            kind: "edit",
+            diff: "@@ -1 +1 @@\n-old\n+new\n"
+          },
+          {
+            path: "package.json",
+            kind: "edit"
+          }
+        ]
       }
     });
 
@@ -44,6 +55,9 @@ describe("parseApprovalRequest", () => {
     expect(parsed.itemId).toBe("change_1");
     expect(parsed.threadId).toBe("thread_2");
     expect(parsed.turnId).toBe("turn_2");
+    expect(parsed.changeCount).toBe(2);
+    expect(parsed.changedPaths).toContain("apps/mobile/App.tsx");
+    expect(parsed.diffText).toContain("@@ -1 +1 @@");
   });
 
   it("throws on unknown approval method", () => {

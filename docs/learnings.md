@@ -45,5 +45,11 @@
 - Tailscale MagicDNS values from `tailscale status --json` can include trailing dots; normalize before building ws endpoint URLs.
 - Bridge `ping`/`pong` support is most useful when mobile treats it as a first-class liveness signal (latency telemetry + forced reconnect threshold), not just a debug transport primitive.
 - Heartbeat loops should allow only one in-flight ping token at a time; this keeps timeout and latency accounting deterministic.
+- Runtime preference persistence is easiest to maintain when represented as one typed object with explicit defaults, then saved/loaded via pure storage helpers.
+- Preference hydration should be completed before enabling automatic persistence writes; otherwise default state can overwrite saved values during startup.
+- Persisted model ids need bootstrap-time validation against current `model/list`; stale ids should degrade gracefully to the first available model.
+- Screen-context persistence should use the same typed preference object as other runtime settings to avoid fragmented storage keys and migration complexity.
+- Approval context quality improves when request payload parsing captures optional file-change metadata (`changes`, per-file diffs), then merges with turn-level aggregated diff events for preview.
+- Risk messaging should be deterministic and rule-based in v1; lightweight heuristics provide predictable operator guidance without opaque scoring.
 
 Add new entries with date, context, and impact.
