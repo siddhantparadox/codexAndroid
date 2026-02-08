@@ -36,5 +36,9 @@
 - Pierre's open-source diff packages are web-oriented (`react-dom` peers), so Expo clients need native rendering rather than direct package usage.
 - Aggregated `turn/diff/updated` is best treated as a dedicated transcript artifact, not merged into file-change plain text summaries.
 - Rendering line-numbered unified diff previews with strict caps (files + lines per hunk) keeps UI responsive during large patch streams.
+- `thread/list` cursor handling should be modeled explicitly (`data` + `nextCursor`) instead of flattening response data early.
+- For existing-thread workflows, resume state benefits from local tracking to avoid repeated `thread/resume` calls and improve turn-start reliability.
+- Connection fallback diagnostics become much more useful when missing endpoints are captured explicitly (`endpoint_unavailable`) instead of silently skipped.
+- Storing a short history of per-attempt latency and reason gives enough signal for debugging without introducing heavy telemetry infrastructure.
 
 Add new entries with date, context, and impact.

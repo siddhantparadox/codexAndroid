@@ -12,6 +12,7 @@
   1. `lan`
   2. `tailscale`
 - Bridge startup now prints pairing JSON and a terminal QR to support scan-based pairing.
+- Mobile now records endpoint attempt diagnostics (reason + duration) and surfaces actionable hints in Settings.
 
 ## Troubleshooting checklist
 
@@ -19,3 +20,5 @@
 - Verify bridge process is running and port is open locally.
 - Verify phone has route to LAN/Tailscale endpoint.
 - Verify pairing token is valid.
+- If LAN fails, confirm phone/computer are on the same SSID and bridge process is running.
+- If Tailnet fails, confirm Tailscale is connected on both phone and computer.

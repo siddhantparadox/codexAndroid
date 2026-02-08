@@ -1,6 +1,6 @@
 import type { PairingPayload } from "@codex-mobile/protocol";
 
-type EndpointType = "lan" | "tailscale";
+export type EndpointType = "lan" | "tailscale";
 
 type SocketLike = {
   onopen: (() => void) | null;
@@ -15,6 +15,17 @@ export type ConnectionAttemptFailure = {
   endpointType: EndpointType;
   url: string;
   reason: string;
+  durationMs: number;
+  timestampMs: number;
+};
+
+export type ConnectionAttempt = {
+  endpointType: EndpointType;
+  url: string;
+  success: boolean;
+  reason: string | null;
+  durationMs: number;
+  timestampMs: number;
 };
 
 export class ConnectionFallbackError extends Error {
@@ -34,6 +45,7 @@ export type ConnectionResult = {
   endpointType: EndpointType;
   url: string;
   socket: SocketLike;
+  attempts: ConnectionAttempt[];
 };
 
 type ConnectOptions = {
@@ -57,6 +69,7 @@ const connectOnce = (
   WebSocketImplementation: WebSocketCtor
 ): Promise<ConnectionResult> => {
   const url = appendToken(endpoint, token);
+  const startedAtMs = Date.now();
   const socket = new WebSocketImplementation(url);
 
   return new Promise((resolve, reject) => {
@@ -78,7 +91,9 @@ const connectOnce = (
       reject({
         endpointType,
         url,
-        reason
+        reason,
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        timestampMs: Date.now()
       } satisfies ConnectionAttemptFailure);
     };
 
@@ -98,7 +113,17 @@ const connectOnce = (
       resolve({
         endpointType,
         url,
-        socket
+        socket,
+        attempts: [
+          {
+            endpointType,
+            url,
+            success: true,
+            reason: null,
+            durationMs: Math.max(0, Date.now() - startedAtMs),
+            timestampMs: Date.now()
+          }
+        ]
       });
     };
 
@@ -136,17 +161,38 @@ export const connectWithEndpointFallback = async (
 
   for (const [endpointType, endpoint] of orderedEndpoints) {
     if (!endpoint) {
+      attempts.push({
+        endpointType,
+        url: "",
+        reason: "endpoint_unavailable",
+        durationMs: 0,
+        timestampMs: Date.now()
+      });
       continue;
     }
 
     try {
-      return await connectOnce(
+      const connection = await connectOnce(
         endpointType,
         endpoint,
         payload.token,
         timeoutMs,
         WebSocketImplementation
       );
+      return {
+        ...connection,
+        attempts: [
+          ...attempts.map((attempt) => ({
+            endpointType: attempt.endpointType,
+            url: attempt.url,
+            success: false,
+            reason: attempt.reason,
+            durationMs: attempt.durationMs,
+            timestampMs: attempt.timestampMs
+          })),
+          ...connection.attempts
+        ]
+      };
     } catch (caughtError) {
       attempts.push(caughtError as ConnectionAttemptFailure);
     }

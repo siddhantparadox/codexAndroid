@@ -1,6 +1,9 @@
 import { CodexRpcClient } from "./rpc-client";
 import { parseAccountSnapshot } from "./account";
-import { parseThreadListResponse, type ThreadSummary } from "./thread-list";
+import {
+  parseThreadListPageResponse,
+  type ThreadSummary
+} from "./thread-list";
 
 export type ModelSummary = {
   id: string;
@@ -14,6 +17,7 @@ export type BootstrapSnapshot = {
   models: ModelSummary[];
   threadCount: number;
   threads: ThreadSummary[];
+  threadNextCursor: string | null;
 };
 
 const asRecord = (value: unknown): Record<string, unknown> | null => {
@@ -67,14 +71,15 @@ export const initializeAndBootstrap = async (
       sortKey: "updated_at"
     })
   );
-  const threadData = parseThreadListResponse(threadResult);
+  const threadPage = parseThreadListPageResponse(threadResult);
 
   return {
     requiresOpenaiAuth: accountSnapshot.requiresOpenaiAuth,
     authMode: accountSnapshot.authMode,
     modelCount: modelData.length,
     models: modelData,
-    threadCount: threadData.length,
-    threads: threadData
+    threadCount: threadPage.data.length,
+    threads: threadPage.data,
+    threadNextCursor: threadPage.nextCursor
   };
 };

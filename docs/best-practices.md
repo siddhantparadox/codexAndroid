@@ -34,6 +34,10 @@
 - Validate package runtime targets before adoption (`react-dom` packages are not portable to Expo native without wrappers).
 - Keep aggregated turn diffs and plan updates as first-class timeline artifacts (`turn/diff/updated`, `turn/plan/updated`) to preserve execution transparency.
 - Cap diff rendering work (max files + max lines per hunk) and surface truncation explicitly to balance fidelity with mobile performance.
+- Parse paginated API responses into page models first, then derive flattened UI lists; avoid losing cursor state in parser boundaries.
+- When users can select historic threads, enforce `thread/resume` before starting a turn unless the thread is already known in-memory.
+- In endpoint fallback flows, treat missing endpoints as explicit diagnostic events rather than implicit no-ops.
+- Keep user-facing connection hints deterministic and endpoint-scoped (LAN guidance should differ from Tailnet guidance).
 
 ## Product constraints (v1)
 

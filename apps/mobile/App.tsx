@@ -47,9 +47,13 @@ import {
   appendLocalUserPrompt,
   createInitialSessionState,
   setActiveThreadId,
+  type CodexSessionState,
   type TranscriptItem
 } from "./src/codex/session";
-import { parseThreadListResponse } from "./src/codex/thread-list";
+import {
+  parseThreadListPageResponse,
+  type ThreadSummary
+} from "./src/codex/thread-list";
 import {
   buildThreadStartParams,
   buildTurnStartParams,
@@ -57,7 +61,15 @@ import {
   type ReasoningMode
 } from "./src/codex/turn-settings";
 import { getAppTitle } from "./src/config";
-import { connectWithEndpointFallback } from "./src/pairing/connect";
+import {
+  ConnectionFallbackError,
+  connectWithEndpointFallback,
+  type ConnectionAttempt
+} from "./src/pairing/connect";
+import {
+  buildConnectionHint,
+  formatAttemptSummary
+} from "./src/pairing/diagnostics";
 import { parsePairingQrPayload } from "./src/pairing/qr";
 import {
   clearPersistedPairing,
@@ -127,6 +139,38 @@ const getConnectionLabel = (
   return latencyMs ? `${name} ${latencyMs}ms` : `${name} --ms`;
 };
 
+const formatThreadTimestamp = (timestamp: number | null): string => {
+  if (!timestamp) {
+    return "updated unknown";
+  }
+
+  return new Date(timestamp * 1000).toLocaleString(undefined, {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+};
+
+const mergeThreadsById = (
+  currentThreads: ThreadSummary[],
+  nextThreads: ThreadSummary[]
+): ThreadSummary[] => {
+  const order: string[] = [];
+  const byId = new Map<string, ThreadSummary>();
+
+  for (const thread of [...currentThreads, ...nextThreads]) {
+    if (!byId.has(thread.id)) {
+      order.push(thread.id);
+    }
+    byId.set(thread.id, thread);
+  }
+
+  return order
+    .map((id) => byId.get(id))
+    .filter((entry): entry is ThreadSummary => Boolean(entry));
+};
+
 const ActionButton = ({
   theme,
   label,
@@ -178,6 +222,8 @@ export const App = (): React.ReactElement => {
   const [error, setError] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
   const [isRefreshingThreads, setIsRefreshingThreads] = React.useState(false);
+  const [isLoadingMoreThreads, setIsLoadingMoreThreads] = React.useState(false);
+  const [isMutatingThread, setIsMutatingThread] = React.useState(false);
   const [prompt, setPrompt] = React.useState("");
   const [activeScreen, setActiveScreen] = React.useState<AppScreenKey>("threads");
   const [commandAcceptSettingsJson, setCommandAcceptSettingsJson] = React.useState("");
@@ -192,6 +238,7 @@ export const App = (): React.ReactElement => {
   const [effortLevel, setEffortLevel] = React.useState<EffortLevel>("medium");
   const [reasoningMode, setReasoningMode] = React.useState<ReasoningMode>("summary");
   const [showToolCalls, setShowToolCalls] = React.useState(true);
+  const [showArchivedThreads, setShowArchivedThreads] = React.useState(false);
   const [selectedModelId, setSelectedModelId] = React.useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = React.useState("");
   const [activeLoginId, setActiveLoginId] = React.useState<string | null>(null);
@@ -199,6 +246,9 @@ export const App = (): React.ReactElement => {
   const [isAuthSubmitting, setIsAuthSubmitting] = React.useState(false);
   const [connectionEndpoint, setConnectionEndpoint] = React.useState<"lan" | "tailscale" | null>(null);
   const [connectionLatencyMs, setConnectionLatencyMs] = React.useState<number | null>(null);
+  const [latencyHistoryMs, setLatencyHistoryMs] = React.useState<number[]>([]);
+  const [connectionAttemptLog, setConnectionAttemptLog] = React.useState<ConnectionAttempt[]>([]);
+  const [lastConnectionHint, setLastConnectionHint] = React.useState<string | null>(null);
   const [stampByRequestId, setStampByRequestId] = React.useState<Record<number, StampState>>({});
 
   const socketRef = React.useRef<WebSocket | null>(null);
@@ -212,10 +262,21 @@ export const App = (): React.ReactElement => {
   const connectInvokerRef = React.useRef<(() => Promise<void>) | null>(null);
   const approvalResolversRef = React.useRef<Map<number, ApprovalResolverEntry>>(new Map());
   const stampTimersRef = React.useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  const resumedThreadIdsRef = React.useRef<Set<string>>(new Set());
 
   const theme = themeName === "parchment" ? parchmentTheme : carbonTheme;
   const reducedMotion = reducedMotionOverride ?? systemReducedMotion;
   const connected = Boolean(bootstrap);
+  const connectionHealth: "connected" | "connecting" | "degraded" | "offline" =
+    connected ? "connected" : isLoading ? "connecting" : lastConnectionHint ? "degraded" : "offline";
+  const connectionHealthColor =
+    connectionHealth === "connected"
+      ? theme.acid
+      : connectionHealth === "connecting"
+        ? theme.cyan
+        : connectionHealth === "degraded"
+          ? theme.amber
+          : theme.danger;
 
   React.useEffect(() => {
     sessionRef.current = session;
@@ -288,11 +349,15 @@ export const App = (): React.ReactElement => {
     setPairing(parsed);
     setBootstrap(null);
     setSession(createInitialSessionState());
+    resumedThreadIdsRef.current.clear();
     setPendingApprovals([]);
     setCommandAcceptSettingsJson("");
     setError(null);
     setConnectionEndpoint(null);
     setConnectionLatencyMs(null);
+    setLatencyHistoryMs([]);
+    setConnectionAttemptLog([]);
+    setLastConnectionHint(null);
     setActiveLoginId(null);
     setPendingAuthUrl(null);
     setApiKeyInput("");
@@ -477,6 +542,8 @@ export const App = (): React.ReactElement => {
     setBootstrap(null);
     setConnectionEndpoint(null);
     setConnectionLatencyMs(null);
+    setLastConnectionHint(null);
+    resumedThreadIdsRef.current.clear();
 
     const startedAtMs = Date.now();
 
@@ -505,6 +572,14 @@ export const App = (): React.ReactElement => {
         },
         onNotification: (method, params) => {
           setSession((previous) => applyCodexNotification(previous, method, params));
+          if (method === "thread/started") {
+            const record = asRecord(params);
+            const thread = asRecord(record?.thread);
+            const threadId = typeof thread?.id === "string" ? thread.id : null;
+            if (threadId) {
+              resumedThreadIdsRef.current.add(threadId);
+            }
+          }
           if (method === "turn/started") {
             setStatus("Turn in progress...");
           }
@@ -567,6 +642,8 @@ export const App = (): React.ReactElement => {
           setSession(createInitialSessionState());
           setConnectionEndpoint(null);
           setConnectionLatencyMs(null);
+          setLastConnectionHint("Connection closed unexpectedly. Computer may be asleep or bridge stopped.");
+          resumedThreadIdsRef.current.clear();
 
           if (manualDisconnectRef.current) {
             setStatus("Disconnected");
@@ -581,21 +658,49 @@ export const App = (): React.ReactElement => {
 
       reconnectAttemptRef.current = 0;
       setSession(createInitialSessionState());
+      resumedThreadIdsRef.current.clear();
       setPendingApprovals([]);
       setCommandAcceptSettingsJson("");
       setStatus(`Connected via ${connection.endpointType}. Initializing...`);
       const snapshot = await initializeAndBootstrap(client);
+      const successfulAttempt =
+        connection.attempts.find((attempt) => attempt.success) ?? null;
+      const latencyMs =
+        successfulAttempt?.durationMs ?? Math.max(1, Date.now() - startedAtMs);
       setBootstrap(snapshot);
       setSelectedModelId(snapshot.models[0]?.id ?? null);
       setActiveLoginId(null);
       setPendingAuthUrl(null);
       setConnectionEndpoint(connection.endpointType);
-      setConnectionLatencyMs(Math.max(1, Date.now() - startedAtMs));
+      setConnectionLatencyMs(latencyMs);
+      setLatencyHistoryMs((previous) => [...previous, latencyMs].slice(-8));
+      setConnectionAttemptLog((previous) => [...previous, ...connection.attempts].slice(-20));
+      setLastConnectionHint(null);
       setStatus(`Connected via ${connection.endpointType}. App server ready.`);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Connection failed");
-      setStatus("Connection failed");
+      if (caughtError instanceof ConnectionFallbackError) {
+        const failedAttempts = caughtError.attempts.map((attempt) => ({
+          endpointType: attempt.endpointType,
+          url: attempt.url,
+          success: false,
+          reason: attempt.reason,
+          durationMs: attempt.durationMs,
+          timestampMs: attempt.timestampMs
+        } satisfies ConnectionAttempt));
+        const hint = buildConnectionHint(caughtError.attempts);
+        const detail = caughtError.attempts
+          .map((attempt) => formatAttemptSummary(attempt))
+          .join(" ");
+
+        setConnectionAttemptLog((previous) => [...previous, ...failedAttempts].slice(-20));
+        setLastConnectionHint(hint);
+        setError(detail || "Connection failed");
+        setStatus(`Connection failed. ${hint}`);
+      } else {
+        setError(caughtError instanceof Error ? caughtError.message : "Connection failed");
+        setStatus("Connection failed");
+      }
     } finally {
       isConnectingRef.current = false;
       setIsLoading(false);
@@ -625,9 +730,11 @@ export const App = (): React.ReactElement => {
 
     setBootstrap(null);
     setSession(createInitialSessionState());
+    resumedThreadIdsRef.current.clear();
     setPendingApprovals([]);
     setConnectionEndpoint(null);
     setConnectionLatencyMs(null);
+    setLastConnectionHint(null);
     setActiveLoginId(null);
     setPendingAuthUrl(null);
     setIsAuthSubmitting(false);
@@ -767,28 +874,191 @@ export const App = (): React.ReactElement => {
     }
   }, [refreshAccountState]);
 
-  const refreshThreads = React.useCallback(async (): Promise<void> => {
+  const ensureThreadResumed = React.useCallback(
+    async (client: CodexRpcClient, threadId: string): Promise<string> => {
+      if (resumedThreadIdsRef.current.has(threadId)) {
+        return threadId;
+      }
+
+      const resumeResult = asRecord(await client.request("thread/resume", { threadId }));
+      const resumedThread = asRecord(resumeResult?.thread);
+      const resumedId =
+        typeof resumedThread?.id === "string" ? resumedThread.id : threadId;
+
+      resumedThreadIdsRef.current.add(resumedId);
+      setSession((previous) => setActiveThreadId(previous, resumedId));
+      return resumedId;
+    },
+    []
+  );
+
+  const refreshThreads = React.useCallback(async (archivedOverride?: boolean): Promise<void> => {
     const client = clientRef.current;
-    if (!client || !bootstrap || isRefreshingThreads) {
+    if (!client || isRefreshingThreads) {
       return;
     }
 
+    const archived = archivedOverride ?? showArchivedThreads;
     setIsRefreshingThreads(true);
     try {
-      const threads = parseThreadListResponse(await client.request("thread/list", { limit: 20, sortKey: "updated_at" }));
+      const page = parseThreadListPageResponse(
+        await client.request("thread/list", {
+          limit: 20,
+          sortKey: "updated_at",
+          archived
+        })
+      );
+
       setBootstrap((previous) =>
         previous
-          ? { ...previous, threadCount: threads.length, threads }
+          ? {
+              ...previous,
+              threadCount: page.data.length,
+              threads: page.data,
+              threadNextCursor: page.nextCursor
+            }
           : previous
       );
-      setStatus(`Loaded ${threads.length} thread${threads.length === 1 ? "" : "s"}.`);
+      setStatus(
+        `Loaded ${page.data.length} ${archived ? "archived " : ""}thread${page.data.length === 1 ? "" : "s"}.`
+      );
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Failed to refresh threads");
       setStatus("Failed to refresh threads");
     } finally {
       setIsRefreshingThreads(false);
     }
-  }, [bootstrap, isRefreshingThreads]);
+  }, [isRefreshingThreads, showArchivedThreads]);
+
+  const loadMoreThreads = React.useCallback(async (): Promise<void> => {
+    const client = clientRef.current;
+    const nextCursor = bootstrap?.threadNextCursor ?? null;
+    if (!client || !bootstrap || !nextCursor || isLoadingMoreThreads) {
+      return;
+    }
+
+    setIsLoadingMoreThreads(true);
+    try {
+      const page = parseThreadListPageResponse(
+        await client.request("thread/list", {
+          cursor: nextCursor,
+          limit: 20,
+          sortKey: "updated_at",
+          archived: showArchivedThreads
+        })
+      );
+
+      setBootstrap((previous) => {
+        if (!previous) {
+          return previous;
+        }
+
+        const merged = mergeThreadsById(previous.threads, page.data);
+        return {
+          ...previous,
+          threads: merged,
+          threadCount: merged.length,
+          threadNextCursor: page.nextCursor
+        };
+      });
+      setStatus(`Loaded ${page.data.length} more threads.`);
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : "Failed to load more threads");
+      setStatus("Failed to load more threads");
+    } finally {
+      setIsLoadingMoreThreads(false);
+    }
+  }, [bootstrap, isLoadingMoreThreads, showArchivedThreads]);
+
+  const resumeSelectedThread = React.useCallback(async (): Promise<void> => {
+    const client = clientRef.current;
+    const threadId = sessionRef.current.activeThreadId;
+    if (!client || !threadId || isMutatingThread) {
+      return;
+    }
+
+    setIsMutatingThread(true);
+    try {
+      const resumedId = await ensureThreadResumed(client, threadId);
+      setSession((previous) => setActiveThreadId(previous, resumedId));
+      setStatus("Thread resumed.");
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : "Failed to resume thread");
+      setStatus("Failed to resume thread");
+    } finally {
+      setIsMutatingThread(false);
+    }
+  }, [ensureThreadResumed, isMutatingThread]);
+
+  const forkSelectedThread = React.useCallback(async (): Promise<void> => {
+    const client = clientRef.current;
+    const threadId = sessionRef.current.activeThreadId;
+    if (!client || !threadId || isMutatingThread) {
+      return;
+    }
+
+    setIsMutatingThread(true);
+    try {
+      const forkResult = asRecord(await client.request("thread/fork", { threadId }));
+      const forkThread = asRecord(forkResult?.thread);
+      const forkId = typeof forkThread?.id === "string" ? forkThread.id : null;
+
+      if (!forkId) {
+        throw new Error("thread/fork did not return a thread id");
+      }
+
+      resumedThreadIdsRef.current.add(forkId);
+      setSession((previous): CodexSessionState => ({
+        ...previous,
+        activeThreadId: forkId,
+        activeTurnId: null,
+        turnStatus: "idle"
+      }));
+      setStatus("Thread forked.");
+      await refreshThreads();
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : "Failed to fork thread");
+      setStatus("Failed to fork thread");
+    } finally {
+      setIsMutatingThread(false);
+    }
+  }, [isMutatingThread, refreshThreads]);
+
+  const archiveOrUnarchiveSelectedThread = React.useCallback(async (): Promise<void> => {
+    const client = clientRef.current;
+    const threadId = sessionRef.current.activeThreadId;
+    if (!client || !threadId || isMutatingThread) {
+      return;
+    }
+
+    setIsMutatingThread(true);
+    try {
+      if (showArchivedThreads) {
+        await client.request("thread/unarchive", { threadId });
+      } else {
+        await client.request("thread/archive", { threadId });
+        resumedThreadIdsRef.current.delete(threadId);
+        setSession((previous): CodexSessionState => ({
+          ...previous,
+          activeThreadId: null,
+          activeTurnId: null,
+          turnStatus: "idle"
+        }));
+      }
+
+      setStatus(showArchivedThreads ? "Thread unarchived." : "Thread archived.");
+      await refreshThreads();
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Failed to update archived state"
+      );
+      setStatus("Failed to update archived state");
+    } finally {
+      setIsMutatingThread(false);
+    }
+  }, [isMutatingThread, refreshThreads, showArchivedThreads]);
 
   const startNewThread = React.useCallback((): void => {
     setSession((previous) => ({ ...previous, activeThreadId: null, activeTurnId: null, turnStatus: "idle" }));
@@ -833,7 +1103,10 @@ export const App = (): React.ReactElement => {
           throw new Error("thread/start did not return a thread id");
         }
 
+        resumedThreadIdsRef.current.add(threadId);
         setSession((previous) => setActiveThreadId(previous, threadId as string));
+      } else {
+        threadId = await ensureThreadResumed(client, threadId);
       }
 
       const turnStartResult = await client.request(
@@ -858,6 +1131,7 @@ export const App = (): React.ReactElement => {
     }
   }, [
     composerMode,
+    ensureThreadResumed,
     effortLevel,
     networkAccess,
     pairing?.cwdHint,
@@ -976,6 +1250,9 @@ export const App = (): React.ReactElement => {
         <Typo theme={theme} variant="heading" tone="paper" weight="semibold">Machines</Typo>
         <Typo theme={theme} variant="small" tone="paper">{pairing ? pairing.name : "No paired computer"}</Typo>
         <Typo theme={theme} variant="micro" tone="paper">{getConnectionLabel(connectionEndpoint, connectionLatencyMs)}</Typo>
+        {lastConnectionHint ? (
+          <Typo theme={theme} variant="micro" tone="paper">{lastConnectionHint}</Typo>
+        ) : null}
         <View style={styles.actionRow}>
           <ActionButton theme={theme} label={isScannerVisible ? "Close Scanner" : "Pair by QR"} onPress={() => setIsScannerVisible((value) => !value)} tone="acid" />
           <ActionButton theme={theme} label={isLoading ? "Connecting..." : "Connect"} onPress={() => { void connectToBridge(); }} disabled={!pairing || isLoading} tone="outline" />
@@ -1043,7 +1320,38 @@ export const App = (): React.ReactElement => {
               setShowToolCalls((value) => !value);
             }}
           />
-          <Chip theme={theme} label={isRefreshingThreads ? "Refreshing..." : "Refresh Threads"} onPress={() => { void refreshThreads(); }} selected={false} />
+          <Chip
+            theme={theme}
+            label={showArchivedThreads ? "View: archived" : "View: active"}
+            selected={showArchivedThreads}
+            onPress={() => {
+              const next = !showArchivedThreads;
+              setShowArchivedThreads(next);
+              void refreshThreads(next);
+            }}
+          />
+          <Chip
+            theme={theme}
+            label={isRefreshingThreads ? "Refreshing..." : "Refresh Threads"}
+            onPress={() => {
+              void refreshThreads();
+            }}
+            selected={false}
+          />
+          <Chip
+            theme={theme}
+            label={
+              isLoadingMoreThreads
+                ? "Loading more..."
+                : bootstrap?.threadNextCursor
+                  ? "Load More"
+                  : "No More"
+            }
+            selected={Boolean(bootstrap?.threadNextCursor)}
+            onPress={() => {
+              void loadMoreThreads();
+            }}
+          />
         </View>
         <TextInput
           value={prompt}
@@ -1060,17 +1368,68 @@ export const App = (): React.ReactElement => {
         </View>
       </IndexCard>
 
-      <Typo theme={theme} variant="heading" weight="semibold">Thread Archive</Typo>
+      <Typo theme={theme} variant="heading" weight="semibold">
+        {showArchivedThreads ? "Archived Threads" : "Thread Archive"}
+      </Typo>
+      <View style={styles.actionRow}>
+        <ActionButton
+          theme={theme}
+          label={isMutatingThread ? "Working..." : "Resume Selected"}
+          onPress={() => {
+            void resumeSelectedThread();
+          }}
+          disabled={!session.activeThreadId || !connected || isMutatingThread}
+          tone="outline"
+        />
+        <ActionButton
+          theme={theme}
+          label="Fork Selected"
+          onPress={() => {
+            void forkSelectedThread();
+          }}
+          disabled={!session.activeThreadId || !connected || isMutatingThread}
+          tone="panel"
+        />
+        <ActionButton
+          theme={theme}
+          label={showArchivedThreads ? "Unarchive Selected" : "Archive Selected"}
+          onPress={() => {
+            void archiveOrUnarchiveSelectedThread();
+          }}
+          disabled={!session.activeThreadId || !connected || isMutatingThread}
+          tone={showArchivedThreads ? "outline" : "danger"}
+        />
+      </View>
       {!bootstrap || bootstrap.threads.length === 0 ? (
         <View style={[styles.emptyState, { backgroundColor: theme.panel, borderColor: theme.hairline }]}>
-          <Typo theme={theme} variant="small" tone="muted">No threads loaded yet.</Typo>
+          <Typo theme={theme} variant="small" tone="muted">
+            {showArchivedThreads ? "No archived threads loaded." : "No threads loaded yet."}
+          </Typo>
         </View>
       ) : (
-        bootstrap.threads.slice(0, 8).map((thread, index) => (
+        bootstrap.threads.map((thread, index) => (
           <MotiView key={thread.id} from={{ opacity: 0, translateY: 10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: "timing", duration: 180, delay: index * 40 }}>
-            <Pressable onPress={() => setSession((previous) => setActiveThreadId(previous, thread.id))}>
+            <Pressable
+              onPress={() => {
+                setSession((previous) => setActiveThreadId(previous, thread.id));
+                setStatus(`Selected thread ${thread.id}.`);
+              }}
+            >
               <IndexCard theme={theme} tilt={index % 2 === 0 ? 0.8 : -0.8} accent={session.activeThreadId === thread.id ? "acid" : "cyan"}>
                 <Typo theme={theme} variant="small" tone="paper" weight="display">{clip(thread.preview, 80)}</Typo>
+                <View style={styles.threadMetaRow}>
+                  <Typo theme={theme} variant="micro" tone="paper">
+                    {(thread.modelProvider ?? "unknown")} • {(thread.sourceKind ?? "app")}
+                  </Typo>
+                  <Typo theme={theme} variant="micro" tone="paper">
+                    {formatThreadTimestamp(thread.updatedAt ?? thread.createdAt)}
+                  </Typo>
+                </View>
+                {thread.archived ? (
+                  <Typo theme={theme} variant="micro" tone="paper" weight="semibold">
+                    Archived
+                  </Typo>
+                ) : null}
                 <Typo theme={theme} variant="micro" tone="paper">{thread.id}</Typo>
               </IndexCard>
             </Pressable>
@@ -1226,6 +1585,38 @@ export const App = (): React.ReactElement => {
         <Typo theme={theme} variant="heading" tone="paper" weight="semibold">Diagnostics</Typo>
         <Typo theme={theme} variant="micro" tone="paper">Auth mode: {bootstrap?.authMode ?? "unknown"}</Typo>
         <Typo theme={theme} variant="micro" tone="paper">Models: {bootstrap?.modelCount ?? 0} | Threads: {bootstrap?.threadCount ?? 0}</Typo>
+        <Typo theme={theme} variant="micro" tone="paper">
+          Connection health: {connectionHealth}
+        </Typo>
+        <Typo theme={theme} variant="micro" tone="paper">
+          Active endpoint: {connectionEndpoint ?? "none"}
+        </Typo>
+        <Typo theme={theme} variant="micro" tone="paper">
+          Last latency: {connectionLatencyMs ? `${connectionLatencyMs}ms` : "n/a"}
+        </Typo>
+        <Typo theme={theme} variant="micro" tone="paper">
+          Latency trend: {latencyHistoryMs.length > 0 ? latencyHistoryMs.join(" ms, ") + " ms" : "n/a"}
+        </Typo>
+        {lastConnectionHint ? (
+          <Typo theme={theme} variant="micro" tone="paper">
+            Last network hint: {lastConnectionHint}
+          </Typo>
+        ) : null}
+        <View style={[styles.diagnosticsBlock, { borderColor: theme.cardHairline, backgroundColor: theme.cardAlt }]}>
+          {connectionAttemptLog.slice(-4).map((attempt, index) => (
+            <Typo
+              key={`${attempt.endpointType}-${attempt.timestampMs}-${index}`}
+              theme={theme}
+              variant="micro"
+              tone="paper"
+            >
+              {formatAttemptSummary(attempt)}
+            </Typo>
+          ))}
+          {connectionAttemptLog.length === 0 ? (
+            <Typo theme={theme} variant="micro" tone="paper">No recent connection attempts.</Typo>
+          ) : null}
+        </View>
       </IndexCard>
     </View>
   );
@@ -1235,10 +1626,14 @@ export const App = (): React.ReactElement => {
       <View style={styles.root}>
         <View style={styles.topRail}>
           <Pressable style={[styles.machinePill, { borderColor: theme.hairline }]} onPress={() => setActiveScreen("settings")}>
-            <View style={[styles.statusDot, { backgroundColor: connected ? theme.acid : theme.amber }]} />
+            <View style={[styles.statusDot, { backgroundColor: connectionHealthColor }]} />
             <View style={{ flex: 1 }}>
               <Typo theme={theme} variant="micro" weight="semibold">{pairing?.name ?? "Pair a Computer"}</Typo>
-              <Typo theme={theme} variant="micro" tone="muted">{getConnectionLabel(connectionEndpoint, connectionLatencyMs)}</Typo>
+              <Typo theme={theme} variant="micro" tone="muted">
+                {connectionEndpoint
+                  ? getConnectionLabel(connectionEndpoint, connectionLatencyMs)
+                  : connectionHealth.toUpperCase()}
+              </Typo>
             </View>
           </Pressable>
           <ActionButton
@@ -1458,6 +1853,19 @@ const styles = StyleSheet.create({
     borderRadius: radii.cardInner,
     paddingHorizontal: space.x3,
     paddingVertical: space.x2
+  },
+  threadMetaRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: space.x2
+  },
+  diagnosticsBlock: {
+    borderRadius: radii.cardInner,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.12)",
+    paddingHorizontal: space.x3,
+    paddingVertical: space.x2,
+    gap: space.x1
   },
   bottomTabs: {
     position: "absolute",

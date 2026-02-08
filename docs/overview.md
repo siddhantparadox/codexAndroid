@@ -35,6 +35,7 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
   - `thread/list`
 - Mobile turn flow now includes:
   - `thread/start` on first prompt when no active thread exists
+  - `thread/resume` before `turn/start` when an existing archived/listed thread is selected
   - `turn/start` for user prompts
   - streaming transcript updates from `turn/*` and `item/*` notifications
 - Mobile approval flow now handles server-initiated requests:
@@ -50,6 +51,11 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
   - `account/logout`
   - auth state refresh from `account/read` + `account/updated` + `account/login/completed`
 - Mobile connection lifecycle now supports reconnect with exponential backoff after unexpected disconnects
+- Connection diagnostics now include:
+  - per-endpoint attempt logs (`lan` / `tailscale`) with reason + duration
+  - actionable connection hints derived from fallback failures
+  - connection health state (`connected` / `connecting` / `degraded` / `offline`)
+  - latency trend history visible in settings diagnostics
 - Session transcript now includes:
   - command `cwd` context on command execution items
   - file-change summaries from `changes`
@@ -74,4 +80,8 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
   - mode-based sandbox policy
   - network access
   - reasoning summary mode
+- Thread lifecycle management now includes:
+  - enriched thread metadata rendering (provider/source/updated time)
+  - cursor-based `thread/list` pagination with load-more behavior
+  - explicit selected-thread actions: resume, fork, archive, unarchive
 - Docs folder now tracks decisions, learnings, mistakes, and best practices

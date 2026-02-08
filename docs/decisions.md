@@ -95,3 +95,15 @@
 - Decision: Build a native React Native diff parser + renderer inspired by Pierre's diff aesthetic, rather than importing `@pierre/diffs` directly.
 - Why: `@pierre/diffs` and `@pierre/precision-diffs` require `react-dom` and are web-first, which does not fit Expo React Native runtime.
 - Consequence: Added `parseUnifiedDiff` and `PierreDiffCard` for mobile-safe diff rendering, and wired reducer support for `turn/diff/updated` + `turn/plan/updated`.
+
+## 2026-02-08 - Treat selected stored threads as explicit lifecycle objects
+
+- Decision: Add explicit thread lifecycle controls in mobile (`resume`, `fork`, `archive`, `unarchive`) and enforce resume-before-turn for selected stored threads.
+- Why: Selecting an existing thread from history should deterministically restore in-memory context before new turns; relying on implicit behavior is fragile.
+- Consequence: Mobile now tracks resumed thread ids, enriches thread list metadata, and uses cursor-based pagination state from `thread/list`.
+
+## 2026-02-08 - Promote endpoint fallback failures to first-class diagnostics
+
+- Decision: Keep structured connection attempt telemetry (`endpoint`, `reason`, `duration`, `timestamp`) and render endpoint-specific guidance in mobile diagnostics.
+- Why: Generic "connection failed" messages do not help users distinguish wrong Wi-Fi, computer asleep, token mismatch, or Tailnet issues.
+- Consequence: `connectWithEndpointFallback` now returns attempt history on success, includes `endpoint_unavailable` attempts, and mobile settings expose actionable hints and recent attempt summaries.
