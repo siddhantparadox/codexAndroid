@@ -137,10 +137,11 @@ Run these in order:
    1. Trigger a turn that requests approval.
    2. Confirm `Pending Approvals` card appears with thread/turn/item ids.
    3. Confirm risk summary (`LOW/MEDIUM/HIGH`) and reason lines are visible.
-   4. For file approvals, confirm changed-file list and diff preview (when available) are visible.
-   5. Test `Decline`.
-   6. Trigger again and test `Accept`.
-   7. For command approvals, optionally provide valid JSON in `acceptSettings` and accept.
+   4. Tap `Why` on at least one risk line and confirm inline explainer text appears.
+   5. For file approvals, confirm changed-file list and diff preview (when available) are visible.
+   6. Test `Decline`.
+   7. Trigger again and test `Accept`.
+   8. For command approvals, optionally provide valid JSON in `acceptSettings` and accept.
 
 5. Reconnect behavior
    1. While connected, stop bridge (Ctrl+C in Terminal 1).

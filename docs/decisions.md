@@ -149,3 +149,9 @@
 - Decision: Compute and render a deterministic risk summary for each pending approval and show the best available diff context before accept/decline.
 - Why: Approvals are high-consequence decisions and need clear impact framing on mobile screens.
 - Consequence: Approval UI now surfaces risk level and reasons, thread/turn/item metadata, changed files, and Pierre diff previews when available.
+
+## 2026-02-08 - Add inline explainers for each approval risk reason
+
+- Decision: Attach a compact `Why` explainer to every displayed risk reason and keep it toggleable inline.
+- Why: Short risk labels alone are ambiguous; operators need immediate context without leaving the approval surface.
+- Consequence: Risk reasons now carry structured explanation metadata and the UI renders per-reason explainers in both approval cards and bottom-sheet.

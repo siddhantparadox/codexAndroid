@@ -51,5 +51,6 @@
 - Screen-context persistence should use the same typed preference object as other runtime settings to avoid fragmented storage keys and migration complexity.
 - Approval context quality improves when request payload parsing captures optional file-change metadata (`changes`, per-file diffs), then merges with turn-level aggregated diff events for preview.
 - Risk messaging should be deterministic and rule-based in v1; lightweight heuristics provide predictable operator guidance without opaque scoring.
+- Risk UI readability improves when each reason exposes an inline explainer toggle; this avoids burying rationale in separate help screens.
 
 Add new entries with date, context, and impact.

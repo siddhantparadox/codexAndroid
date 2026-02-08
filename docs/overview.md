@@ -46,6 +46,7 @@ Codex Mobile (Codex Remote v1) is a mobile-first client that connects to a local
   - optional command `acceptSettings` JSON passthrough on accept decisions
   - approval cards now show thread/turn ids and latest transcript item context by `itemId`
   - approval cards and bottom-sheet now include explicit risk summaries (`LOW/MEDIUM/HIGH`) and available diff preview context before decision
+  - each risk reason now has a compact `Why` explainer toggle for operator clarity
 - Mobile auth workflow now includes:
   - `account/login/start` via ChatGPT flow
   - `account/login/start` via API key

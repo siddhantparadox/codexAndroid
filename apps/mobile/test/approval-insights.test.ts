@@ -31,7 +31,10 @@ describe("buildApprovalRiskSummary", () => {
     });
 
     expectRisk("high", summary.level);
-    expect(summary.reasons.join(" ")).toMatch(/destructive|privileged/i);
+    expect(summary.reasons.map((reason) => reason.text).join(" ")).toMatch(
+      /destructive|privileged/i
+    );
+    expect(summary.reasons[0]?.explainer).toBeTruthy();
   });
 
   it("marks multi-file sensitive file changes as medium risk", () => {
@@ -42,7 +45,9 @@ describe("buildApprovalRiskSummary", () => {
     });
 
     expectRisk("medium", summary.level);
-    expect(summary.reasons.join(" ")).toMatch(/multi-file|sensitive/i);
+    expect(summary.reasons.map((reason) => reason.text).join(" ")).toMatch(
+      /multi-file|sensitive/i
+    );
   });
 
   it("uses low risk when signal is minimal", () => {
@@ -54,4 +59,3 @@ describe("buildApprovalRiskSummary", () => {
     expectRisk("low", summary.level);
   });
 });
-

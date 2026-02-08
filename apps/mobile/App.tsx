@@ -271,6 +271,9 @@ export const App = (): React.ReactElement => {
   >("unknown");
   const [bridgeAppServerMessage, setBridgeAppServerMessage] = React.useState<string | null>(null);
   const [stampByRequestId, setStampByRequestId] = React.useState<Record<number, StampState>>({});
+  const [expandedRiskReasonKeys, setExpandedRiskReasonKeys] = React.useState<
+    Record<string, boolean>
+  >({});
 
   const socketRef = React.useRef<WebSocket | null>(null);
   const clientRef = React.useRef<CodexRpcClient | null>(null);
@@ -326,6 +329,64 @@ export const App = (): React.ReactElement => {
       };
     },
     [session.transcript]
+  );
+
+  const toggleRiskReasonExplainer = React.useCallback((key: string): void => {
+    setExpandedRiskReasonKeys((previous) => ({
+      ...previous,
+      [key]: !previous[key]
+    }));
+  }, []);
+
+  const renderRiskReasons = React.useCallback(
+    (
+      requestId: number,
+      reasons: ReturnType<typeof buildApprovalRiskSummary>["reasons"],
+      scope: "card" | "sheet"
+    ): React.ReactElement[] =>
+      reasons.slice(0, 3).map((reason, index) => {
+        const reasonKey = `${requestId}:${scope}:${reason.code}:${index}`;
+        const expanded = Boolean(expandedRiskReasonKeys[reasonKey]);
+        return (
+          <View key={reasonKey} style={styles.riskReasonBlock}>
+            <View style={styles.riskReasonRow}>
+              <Typo theme={theme} variant="micro" tone="paper" style={styles.riskReasonText}>
+                - {reason.text}
+              </Typo>
+              <Pressable
+                style={[
+                  styles.whyChip,
+                  {
+                    borderColor: theme.cardHairline,
+                    backgroundColor: theme.card
+                  }
+                ]}
+                onPress={() => toggleRiskReasonExplainer(reasonKey)}
+              >
+                <Typo theme={theme} variant="micro" tone="paper" weight="semibold">
+                  {expanded ? "Hide" : "Why"}
+                </Typo>
+              </Pressable>
+            </View>
+            {expanded ? (
+              <View
+                style={[
+                  styles.riskExplainer,
+                  {
+                    borderColor: theme.cardHairline,
+                    backgroundColor: theme.card
+                  }
+                ]}
+              >
+                <Typo theme={theme} variant="micro" tone="paper">
+                  {reason.explainer}
+                </Typo>
+              </View>
+            ) : null}
+          </View>
+        );
+      }),
+    [expandedRiskReasonKeys, theme, toggleRiskReasonExplainer]
   );
 
   React.useEffect(() => {
@@ -493,6 +554,7 @@ export const App = (): React.ReactElement => {
       approvalResolversRef.current.delete(requestId);
     }
     setPendingApprovals([]);
+    setExpandedRiskReasonKeys({});
   }, []);
 
   const triggerStamp = React.useCallback(
@@ -536,6 +598,11 @@ export const App = (): React.ReactElement => {
 
       setTimeout(() => {
         setPendingApprovals((previous) => previous.filter((approval) => approval.requestId !== requestId));
+        setExpandedRiskReasonKeys((previous) =>
+          Object.fromEntries(
+            Object.entries(previous).filter(([key]) => !key.startsWith(`${requestId}:`))
+          )
+        );
         entry.resolve(response);
       }, reducedMotion ? 80 : 260);
 
@@ -1691,16 +1758,7 @@ export const App = (): React.ReactElement => {
                   >
                     {riskSummary.label}
                   </Typo>
-                  {riskSummary.reasons.slice(0, 3).map((reason, index) => (
-                    <Typo
-                      key={`${approval.requestId}-risk-${index}`}
-                      theme={theme}
-                      variant="micro"
-                      tone="paper"
-                    >
-                      - {reason}
-                    </Typo>
-                  ))}
+                  {renderRiskReasons(approval.requestId, riskSummary.reasons, "card")}
                 </View>
                 <View
                   style={[
@@ -2050,16 +2108,11 @@ export const App = (): React.ReactElement => {
                         >
                           {riskSummary.label}
                         </Typo>
-                        {riskSummary.reasons.slice(0, 3).map((reason, index) => (
-                          <Typo
-                            key={`${activeApproval.requestId}-sheet-risk-${index}`}
-                            theme={theme}
-                            variant="micro"
-                            tone="paper"
-                          >
-                            - {reason}
-                          </Typo>
-                        ))}
+                        {renderRiskReasons(
+                          activeApproval.requestId,
+                          riskSummary.reasons,
+                          "sheet"
+                        )}
                       </View>
                       <View
                         style={[
@@ -2377,6 +2430,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.x3,
     paddingVertical: space.x2,
     gap: 2
+  },
+  riskReasonBlock: {
+    gap: 4
+  },
+  riskReasonRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.x2
+  },
+  riskReasonText: {
+    flex: 1
+  },
+  whyChip: {
+    borderWidth: 1,
+    borderRadius: radii.pill,
+    minHeight: 24,
+    paddingHorizontal: space.x2,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  riskExplainer: {
+    borderWidth: 1,
+    borderRadius: radii.cardInner,
+    paddingHorizontal: space.x2,
+    paddingVertical: 6
   },
   approvalMetaBlock: {
     borderWidth: 1,
