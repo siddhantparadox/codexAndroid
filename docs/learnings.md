@@ -53,5 +53,8 @@
 - Risk messaging should be deterministic and rule-based in v1; lightweight heuristics provide predictable operator guidance without opaque scoring.
 - Risk UI readability improves when each reason exposes an inline explainer toggle; this avoids burying rationale in separate help screens.
 - Mobile troubleshooting is faster when app errors are mirrored to bridge terminal logs with lightweight runtime context (screen, endpoint, app-server state).
+- For Expo SDK dependency alignment, prefer `expo install <pkg>` over manual semver edits so native module versions match SDK expectations automatically.
+- `WorkletsError: ... Couldn't determine native part of Worklets` on Expo Go usually means JS/native version skew; pin `react-native-worklets` to Expo-compatible version (SDK 54: `0.5.1`) and restart Metro with cache clear.
+- In the Carbon theme, outline buttons rendered on paper cards must use `theme.cardText` (not `theme.text`) or labels become effectively invisible.
 
 Add new entries with date, context, and impact.

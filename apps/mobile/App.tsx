@@ -11,7 +11,8 @@ import {
   ScrollView,
   StyleSheet,
   TextInput,
-  View
+  View,
+  type ViewStyle
 } from "react-native";
 import { AppBackground } from "./src/components/AppBackground";
 import { Chip } from "./src/components/Chip";
@@ -198,13 +199,15 @@ const ActionButton = ({
   label,
   onPress,
   disabled,
-  tone = "panel"
+  tone = "panel",
+  style
 }: {
   theme: Theme;
   label: string;
   onPress: () => void;
   disabled?: boolean;
   tone?: "acid" | "panel" | "danger" | "outline";
+  style?: ViewStyle;
 }): React.ReactElement => {
   const backgroundColor =
     tone === "acid"
@@ -214,8 +217,18 @@ const ActionButton = ({
         : tone === "panel"
           ? theme.panel
           : "transparent";
-  const borderColor = tone === "outline" ? theme.hairline : "rgba(0,0,0,0.15)";
-  const textColor = tone === "acid" ? "#0F1217" : theme.text;
+  const borderColor =
+    tone === "outline"
+      ? theme.cardHairline
+      : tone === "danger"
+        ? "rgba(0,0,0,0.25)"
+        : "rgba(0,0,0,0.15)";
+  const textColor =
+    tone === "acid" || tone === "danger"
+      ? "#0F1217"
+      : tone === "outline"
+        ? theme.cardText
+        : theme.text;
 
   return (
     <Pressable onPress={onPress} disabled={disabled}>
@@ -223,7 +236,7 @@ const ActionButton = ({
         <MotiView
           animate={{ scale: pressed && !disabled ? 0.98 : 1, opacity: disabled ? 0.5 : 1 }}
           transition={{ type: "timing", duration: 120 }}
-          style={[styles.actionButton, { backgroundColor, borderColor }]}
+          style={[styles.actionButton, { backgroundColor, borderColor }, style]}
         >
           <Typo theme={theme} variant="small" weight="semibold" style={{ color: textColor }}>
             {label}
@@ -1591,9 +1604,31 @@ export const App = (): React.ReactElement => {
           <Typo theme={theme} variant="micro" tone="paper">{lastConnectionHint}</Typo>
         ) : null}
         <View style={styles.actionRow}>
-          <ActionButton theme={theme} label={isScannerVisible ? "Close Scanner" : "Pair by QR"} onPress={() => setIsScannerVisible((value) => !value)} tone="acid" />
-          <ActionButton theme={theme} label={isLoading ? "Connecting..." : "Connect"} onPress={() => { void connectToBridge(); }} disabled={!pairing || isLoading} tone="outline" />
-          <ActionButton theme={theme} label="Disconnect" onPress={disconnectBridge} disabled={!connected} tone="danger" />
+          <ActionButton
+            theme={theme}
+            style={styles.actionButtonFlex}
+            label={isScannerVisible ? "Close Scanner" : "Pair by QR"}
+            onPress={() => setIsScannerVisible((value) => !value)}
+            tone="acid"
+          />
+          <ActionButton
+            theme={theme}
+            style={styles.actionButtonFlex}
+            label={isLoading ? "Connecting..." : "Connect"}
+            onPress={() => {
+              void connectToBridge();
+            }}
+            disabled={!pairing || isLoading}
+            tone="outline"
+          />
+          <ActionButton
+            theme={theme}
+            style={styles.actionButtonFlex}
+            label="Disconnect"
+            onPress={disconnectBridge}
+            disabled={!connected}
+            tone="danger"
+          />
         </View>
         <TextInput
           value={manualPayload}
@@ -1606,8 +1641,26 @@ export const App = (): React.ReactElement => {
           style={[styles.input, { backgroundColor: theme.cardAlt, borderColor: theme.cardHairline, color: theme.cardText }]}
         />
         <View style={styles.actionRow}>
-          <ActionButton theme={theme} label="Apply JSON" onPress={() => { void submitManualPayload(); }} disabled={!manualPayload.trim()} tone="outline" />
-          <ActionButton theme={theme} label="Forget Pairing" onPress={() => { void forgetPairing(); }} disabled={!pairing} tone="panel" />
+          <ActionButton
+            theme={theme}
+            style={styles.actionButtonFlex}
+            label="Apply JSON"
+            onPress={() => {
+              void submitManualPayload();
+            }}
+            disabled={!manualPayload.trim()}
+            tone="outline"
+          />
+          <ActionButton
+            theme={theme}
+            style={styles.actionButtonFlex}
+            label="Forget Pairing"
+            onPress={() => {
+              void forgetPairing();
+            }}
+            disabled={!pairing}
+            tone="panel"
+          />
         </View>
       </IndexCard>
 
@@ -1961,6 +2014,7 @@ export const App = (): React.ReactElement => {
         <View style={styles.actionRow}>
           <ActionButton
             theme={theme}
+            style={styles.actionButtonFlex}
             label={isAuthSubmitting ? "Starting..." : "Sign in ChatGPT"}
             onPress={() => {
               void startChatgptLogin();
@@ -1970,6 +2024,7 @@ export const App = (): React.ReactElement => {
           />
           <ActionButton
             theme={theme}
+            style={styles.actionButtonFlex}
             label="Cancel Login"
             onPress={() => {
               void cancelChatgptLogin();
@@ -1979,6 +2034,7 @@ export const App = (): React.ReactElement => {
           />
           <ActionButton
             theme={theme}
+            style={styles.actionButtonFlex}
             label="Logout"
             onPress={() => {
               void logoutAccount();
@@ -2003,6 +2059,7 @@ export const App = (): React.ReactElement => {
         />
         <ActionButton
           theme={theme}
+          style={styles.actionButtonFlex}
           label={isAuthSubmitting ? "Submitting..." : "Use API Key"}
           onPress={() => {
             void submitApiKeyLogin();
@@ -2396,6 +2453,10 @@ const styles = StyleSheet.create({
     minHeight: 44,
     alignItems: "center",
     justifyContent: "center"
+  },
+  actionButtonFlex: {
+    flexGrow: 1,
+    flexBasis: 140
   },
   chipRow: {
     flexDirection: "row",
